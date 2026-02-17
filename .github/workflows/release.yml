@@ -44,7 +44,7 @@ jobs:
           # Strip a leading "v" to get the bare version string (v1.2.0 → 1.2.0)
           VERSION="${TAG#v}"
 
-          # Detect pre-release: tag contains "-rc" followed by one or more digits
+          # Detect pre-release: tag ends with "-rc" followed by one or more digits
           if echo "${TAG}" | grep -qE '\-rc[0-9]+$'; then
             PRERELEASE="true"
             echo "🚧  Pre-release detected: ${TAG}"
@@ -53,8 +53,8 @@ jobs:
             echo "✅  Full release detected: ${TAG}"
           fi
 
-          echo "tag=${TAG}"           >> "$GITHUB_OUTPUT"
-          echo "version=${VERSION}"   >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}"               >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}"       >> "$GITHUB_OUTPUT"
           echo "prerelease=${PRERELEASE}" >> "$GITHUB_OUTPUT"
 
   # ── 1. Build DEB packages (server + client) ───────────────────────────────
@@ -71,7 +71,9 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
+            build-essential \
             python3 \
+            python3-all \
             python3-dev \
             debhelper \
             dh-python \
