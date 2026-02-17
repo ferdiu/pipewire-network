@@ -38,6 +38,9 @@ build_server_deb() {
     # Copy debian control files
     cp -r "${SCRIPT_DIR}/debian/server/"* pipewire-network-server-${VERSION}/debian/
 
+    # Copy pyproject to make sure pybuild works
+    cp "${SCRIPT_DIR}/pyproject.toml" pipewire-network-server-${VERSION}/
+
     # Build package
     cd pipewire-network-server-${VERSION}
     dpkg-buildpackage -us -uc -b
@@ -46,7 +49,7 @@ build_server_deb() {
 
     # Copy debs to dist directory
     mkdir -p "${DIST_DIR}"
-    cp "${BUILD_DIR}/server/"*.deb "${DIST_DIR}/"
+    find "${BUILD_DIR}/server" -maxdepth 2 -name "*.deb" -exec cp {} "${DIST_DIR}/" \;
 }
 
 build_client_deb() {
@@ -67,6 +70,9 @@ build_client_deb() {
     # Copy debian control files
     cp -r "${SCRIPT_DIR}/debian/client/"* pipewire-network-client-${VERSION}/debian/
 
+    # Copy pyproject to make sure pybuild works
+    cp "${SCRIPT_DIR}/pyproject.toml" pipewire-network-client-${VERSION}/
+
     # Build package
     cd pipewire-network-client-${VERSION}
     dpkg-buildpackage -us -uc -b
@@ -75,7 +81,7 @@ build_client_deb() {
 
     # Copy debs to dist directory
     mkdir -p "${DIST_DIR}"
-    cp "${BUILD_DIR}/client/"*.deb "${DIST_DIR}/"
+    find "${BUILD_DIR}/client" -maxdepth 2 -name "*.deb" -exec cp {} "${DIST_DIR}/" \;
 }
 
 case "${PACKAGE_TYPE}" in

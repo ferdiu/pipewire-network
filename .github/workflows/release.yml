@@ -77,6 +77,7 @@ jobs:
             python3-dev \
             debhelper \
             dh-python \
+            pybuild-plugin-pyproject \
             dpkg-dev \
             fakeroot
 
