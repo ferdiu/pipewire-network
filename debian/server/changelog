@@ -1,7 +1,7 @@
-pipewire-network-server (2.0.0-1) unstable; urgency=medium
+pipewire-network-receiver (2.0.0-1) unstable; urgency=medium
 
   * Initial release
-  * PipeWire network server with RTP transport
+  * PipeWire network receiver with RTP transport
   * Systemd user service integration
   * Firewalld service definition
 

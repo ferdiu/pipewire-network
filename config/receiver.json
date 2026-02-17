@@ -1,10 +1,7 @@
 {
-  "rtp_destination": "224.0.0.56",
   "rtp_port": 46998,
   "source_address": "0.0.0.0",
   "mtu": 1280,
-  "loop": false,
-  "ttl": 1,
   "sample_spec": null,
   "channel_map": null
 }

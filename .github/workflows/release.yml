@@ -57,7 +57,7 @@ jobs:
           echo "version=${VERSION}"       >> "$GITHUB_OUTPUT"
           echo "prerelease=${PRERELEASE}" >> "$GITHUB_OUTPUT"
 
-  # ── 1. Build DEB packages (server + client) ───────────────────────────────
+  # ── 1. Build DEB packages (receiver + sender) ───────────────────────────────
   build-deb:
     name: "Build DEB (x86_64)"
     runs-on: ubuntu-latest
@@ -84,7 +84,7 @@ jobs:
       - name: Make build script executable
         run: chmod +x scripts/build-deb.sh
 
-      - name: Build DEB packages (server + client)
+      - name: Build DEB packages (receiver + sender)
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: ./scripts/build-deb.sh both
@@ -100,7 +100,7 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-  # ── 2. Build RPM packages (server + client) ───────────────────────────────
+  # ── 2. Build RPM packages (receiver + sender) ───────────────────────────────
   build-rpm:
     name: "Build RPM (x86_64)"
     runs-on: ubuntu-latest
@@ -128,7 +128,7 @@ jobs:
       - name: Make build script executable
         run: chmod +x scripts/build-rpm.sh
 
-      - name: Build RPM packages (server + client)
+      - name: Build RPM packages (receiver + sender)
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: ./scripts/build-rpm.sh both
@@ -194,25 +194,25 @@ jobs:
 
             #### Fedora / RHEL / CentOS (RPM)
             ```bash
-            sudo dnf install pipewire-network-server-*.rpm
-            sudo dnf install pipewire-network-client-*.rpm
+            sudo dnf install pipewire-network-receiver-*.rpm
+            sudo dnf install pipewire-network-sender-*.rpm
             ```
 
             #### Debian / Ubuntu (DEB)
             ```bash
-            sudo dpkg -i pipewire-network-server_*.deb
-            sudo dpkg -i pipewire-network-client_*.deb
+            sudo dpkg -i pipewire-network-receiver_*.deb
+            sudo dpkg -i pipewire-network-sender_*.deb
             sudo apt-get install -f   # resolve any missing dependencies
             ```
 
             ### Post-install (both distros)
             ```bash
-            # Server
-            systemctl --user enable --now pipewire-network-server.service
+            # Receiver
+            systemctl --user enable --now pipewire-network-receiver.service
 
-            # Client
-            pipewire-network-client-config create-sample
-            pipewire-network-client-config enable default
+            # Sender
+            pipewire-network-sender-config create-sample
+            pipewire-network-sender-config enable default
             ```
           files: release-assets/*
           draft: false

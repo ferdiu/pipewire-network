@@ -3,23 +3,23 @@ set -e
 
 case "$1" in
     configure)
-        echo "PipeWire Network Client installed successfully!"
+        echo "PipeWire Network Sender installed successfully!"
         echo ""
         echo "Configuration Management:"
         echo "1. Create/edit configurations:"
-        echo "   pipewire-network-client-config create-sample"
-        echo "   pipewire-network-client-config list"
+        echo "   pipewire-network-sender-config create-sample"
+        echo "   pipewire-network-sender-config list"
         echo ""
         echo "2. Enable specific configurations:"
-        echo "   pipewire-network-client-config enable default"
-        echo "   pipewire-network-client-config enable office"
+        echo "   pipewire-network-sender-config enable default"
+        echo "   pipewire-network-sender-config enable office"
         echo ""
         echo "3. Using systemd directly:"
-        echo "   systemctl --user enable pipewire-network-client@office.service"
-        echo "   systemctl --user start pipewire-network-client@office.service"
+        echo "   systemctl --user enable pipewire-network-sender@office.service"
+        echo "   systemctl --user start pipewire-network-sender@office.service"
         echo ""
         echo "4. Check service status:"
-        echo "   pipewire-network-client-config status office"
+        echo "   pipewire-network-sender-config status office"
         ;;
 esac
 

@@ -1,4 +1,4 @@
-Source: pipewire-network-server
+Source: pipewire-network-receiver
 Section: sound
 Priority: optional
 Maintainer: Federico Manzella <ferdiu.manzella@gmail.com>
@@ -8,15 +8,15 @@ Homepage: https://github.com/ferdiu/pipewire-network
 Vcs-Git: https://github.com/ferdiu/pipewire-network.git
 Vcs-Browser: https://github.com/ferdiu/pipewire-network
 
-Package: pipewire-network-server
+Package: pipewire-network-receiver
 Architecture: all
 Depends: ${misc:Depends}, ${python3:Depends}, python3, pipewire, pipewire-pulse, systemd
 Recommends: firewalld
-Description: PipeWire network audio server
- PipeWire Network Server provides a reliable way to share audio from a
+Description: PipeWire network audio receiver
+ PipeWire Network Receiver provides a reliable way to share audio from a
  PipeWire-enabled system over the network using RTP transport. It includes
  automatic configuration management, health monitoring, and graceful error
  handling.
  .
- This package installs the server component that streams audio to remote
- clients over RTP/UDP.
+ This package installs the receiver component that streams audio to remote
+ senders over RTP/UDP.

@@ -1,7 +1,7 @@
-pipewire-network-client (2.0.0-1) unstable; urgency=medium
+pipewire-network-sender (2.0.0-1) unstable; urgency=medium
 
   * Initial release
-  * PipeWire network client with RTP transport
+  * PipeWire network sender with RTP transport
   * Systemd user service integration
   * Automatic reconnection and health monitoring
 

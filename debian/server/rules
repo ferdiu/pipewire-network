@@ -7,13 +7,13 @@ override_dh_auto_build:
 
 override_dh_auto_install:
 	# Install Python script
-	install -D -m 755 src/pipewire-network-server debian/pipewire-network-server/usr/bin/pipewire-network-server
+	install -D -m 755 src/pipewire-network-receiver debian/pipewire-network-receiver/usr/bin/pipewire-network-receiver
 
 	# Install systemd user service
-	install -D -m 644 systemd/pipewire-network-server.service debian/pipewire-network-server/usr/lib/systemd/user/pipewire-network-server.service
+	install -D -m 644 systemd/pipewire-network-receiver.service debian/pipewire-network-receiver/usr/lib/systemd/user/pipewire-network-receiver.service
 
 	# Install firewalld service definition
-	install -D -m 644 firewalld/pipewire-network.xml debian/pipewire-network-server/usr/lib/firewalld/services/pipewire-network.xml
+	install -D -m 644 firewalld/pipewire-network.xml debian/pipewire-network-receiver/usr/lib/firewalld/services/pipewire-network.xml
 
 	# Install default configuration
-	install -D -m 644 config/server.json debian/pipewire-network-server/etc/pipewire-network/server.json
+	install -D -m 644 config/receiver.json debian/pipewire-network-receiver/etc/pipewire-network/receiver.json

@@ -1,5 +1,5 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: pipewire-network-server
+Upstream-Name: pipewire-network-receiver
 Source: https://github.com/ferdiu/pipewire-network
 
 Files: *

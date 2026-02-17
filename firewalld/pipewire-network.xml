@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <service>
   <short>PipeWire Network</short>
-  <description>PipeWire network audio streaming service. Allows remote clients to receive audio streams over RTP/UDP.</description>
+  <description>PipeWire network audio streaming service. Allows remote senders to receive audio streams over RTP/UDP.</description>
   <port protocol="udp" port="46998"/>
 </service>

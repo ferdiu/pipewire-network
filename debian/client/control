@@ -1,4 +1,4 @@
-Source: pipewire-network-client
+Source: pipewire-network-sender
 Section: sound
 Priority: optional
 Maintainer: Federico Manzella <ferdiu.manzella@gmail.com>
@@ -8,14 +8,14 @@ Homepage: https://github.com/ferdiu/pipewire-network
 Vcs-Git: https://github.com/ferdiu/pipewire-network.git
 Vcs-Browser: https://github.com/ferdiu/pipewire-network
 
-Package: pipewire-network-client
+Package: pipewire-network-sender
 Architecture: all
 Depends: ${misc:Depends}, ${python3:Depends}, python3, pipewire, pipewire-pulse, systemd
-Description: PipeWire network audio client
- PipeWire Network Client provides a reliable way to receive RTP audio streams
- from a remote PipeWire server and create local sinks for network audio
+Description: PipeWire network audio sender
+ PipeWire Network Sender provides a reliable way to receive RTP audio streams
+ from a remote PipeWire receiver and create local sinks for network audio
  playback. It includes automatic reconnection, configuration management, and
  health monitoring.
  .
- This package installs the client component that receives RTP streams from
- remote PipeWire servers and creates local sinks for network audio playback.
+ This package installs the sender component that receives RTP streams from
+ remote PipeWire receivers and creates local sinks for network audio playback.

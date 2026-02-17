@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-PipeWire Network Client Configuration Manager
-Helps manage multiple client configurations and services
+PipeWire Network Sender Configuration Manager
+Helps manage multiple sender configurations and services
 """
 import json
 import os
@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Dict
 
 
-class ClientConfigManager:
+class SenderConfigManager:
     def __init__(self):
         if os.geteuid() == 0:
             # Use system-wide config directory
@@ -22,10 +22,10 @@ class ClientConfigManager:
             if os.getenv("XDG_CONFIG_HOME"):
                 self.config_dir = Path(os.path.join(os.getenv("XDG_CONFIG_HOME"), "pipewire-network"))
 
-        self.config_file = self.config_dir / "client.json"
+        self.config_file = self.config_dir / "sender.json"
 
     def load_configurations(self) -> Dict:
-        """Load all configurations from the client.json file"""
+        """Load all configurations from the sender.json file"""
         if not self.config_file.exists():
             print(f"Configuration file not found: {self.config_file}")
             return {}
@@ -145,26 +145,26 @@ class ClientConfigManager:
         return valid
 
     def list_services(self) -> None:
-        """List systemd user services for PipeWire network client"""
+        """List systemd user services for PipeWire network sender"""
         try:
-            # List all client services (both template instances and regular)
+            # List all sender services (both template instances and regular)
             result = subprocess.run([
                 'systemctl', '--user', 'list-units', '--all',
-                'pipewire-network-client*'
+                'pipewire-network-sender*'
             ], capture_output=True, text=True)
 
             if result.returncode == 0:
-                print("PipeWire Network Client Services:")
+                print("PipeWire Network Sender Services:")
                 print("=" * 50)
                 print(result.stdout)
             else:
-                print("No PipeWire network client services found or error occurred.")
+                print("No PipeWire network sender services found or error occurred.")
         except subprocess.SubprocessError as e:
             print(f"Error listing services: {e}")
 
     def service_status(self, config_name: str) -> None:
         """Show status of a specific configuration service"""
-        service_name = f"pipewire-network-client@{config_name}.service"
+        service_name = f"pipewire-network-sender@{config_name}.service"
         try:
             result = subprocess.run([
                 'systemctl', '--user', 'status', service_name
@@ -185,7 +185,7 @@ class ClientConfigManager:
             print("Cannot enable service with invalid configuration.")
             return
 
-        service_name = f"pipewire-network-client@{config_name}.service"
+        service_name = f"pipewire-network-sender@{config_name}.service"
         try:
             # Enable the service
             print(f"Enabling {service_name}...")
@@ -216,7 +216,7 @@ class ClientConfigManager:
 
     def disable_service(self, config_name: str) -> None:
         """Stop and disable a service for a specific configuration"""
-        service_name = f"pipewire-network-client@{config_name}.service"
+        service_name = f"pipewire-network-sender@{config_name}.service"
         try:
             # Stop the service
             print(f"Stopping {service_name}...")
@@ -286,27 +286,27 @@ class ClientConfigManager:
 
 
 def main():
-    manager = ClientConfigManager()
+    manager = SenderConfigManager()
 
     if len(sys.argv) < 2:
-        print("PipeWire Network Client Configuration Manager")
+        print("PipeWire Network Sender Configuration Manager")
         print("=" * 50)
-        print("Usage: pipewire-network-client-config <command> [args]")
+        print("Usage: pipewire-network-sender-config <command> [args]")
         print()
         print("Commands:")
         print("  list                   - List all configurations")
         print("  show <config>          - Show specific configuration")
         print("  validate <config>      - Validate configuration")
-        print("  services               - List all client services")
+        print("  services               - List all sender services")
         print("  status <config>        - Show service status")
         print("  enable <config>        - Enable and start service")
         print("  disable <config>       - Stop and disable service")
         print("  create-sample          - Create sample configuration file")
         print()
         print("Examples:")
-        print("  pipewire-network-client-config list")
-        print("  pipewire-network-client-config enable office")
-        print("  pipewire-network-client-config status home")
+        print("  pipewire-network-sender-config list")
+        print("  pipewire-network-sender-config enable office")
+        print("  pipewire-network-sender-config status home")
         return 1
 
     command = sys.argv[1].lower()
@@ -315,29 +315,29 @@ def main():
         manager.list_configurations()
     elif command == "show":
         if len(sys.argv) < 3:
-            print("Usage: pipewire-network-client-config show <config_name>")
+            print("Usage: pipewire-network-sender-config show <config_name>")
             return 1
         manager.show_configuration(sys.argv[2])
     elif command == "validate":
         if len(sys.argv) < 3:
-            print("Usage: pipewire-network-client-config validate <config_name>")
+            print("Usage: pipewire-network-sender-config validate <config_name>")
             return 1
         manager.validate_configuration(sys.argv[2])
     elif command == "services":
         manager.list_services()
     elif command == "status":
         if len(sys.argv) < 3:
-            print("Usage: pipewire-network-client-config status <config_name>")
+            print("Usage: pipewire-network-sender-config status <config_name>")
             return 1
         manager.service_status(sys.argv[2])
     elif command == "enable":
         if len(sys.argv) < 3:
-            print("Usage: pipewire-network-client-config enable <config_name>")
+            print("Usage: pipewire-network-sender-config enable <config_name>")
             return 1
         manager.enable_service(sys.argv[2])
     elif command == "disable":
         if len(sys.argv) < 3:
-            print("Usage: pipewire-network-client-config disable <config_name>")
+            print("Usage: pipewire-network-sender-config disable <config_name>")
             return 1
         manager.disable_service(sys.argv[2])
     elif command == "create-sample":

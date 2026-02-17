@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-PipeWire Network Client
+PipeWire Network Sender
 Manages PipeWire RTP receiver module with configuration file support
 """
 import json
@@ -14,10 +14,10 @@ from pathlib import Path
 from typing import Dict, Optional
 
 
-class PipeWireClient:
+class PipeWireSender:
     def __init__(self, config_dir: str = "/etc/pipewire-network", config_name: str = "default"):
         self.config_dir = Path(config_dir)
-        self.config_file = self.config_dir / "client.json"
+        self.config_file = self.config_dir / "sender.json"
         self.config_name = config_name
         self.module_ids = []
         self.running = True
@@ -205,7 +205,7 @@ class PipeWireClient:
 
     def run(self) -> int:
         """Main run loop"""
-        self.logger.info(f"Starting PipeWire Network Client with configuration: {self.config_name}")
+        self.logger.info(f"Starting PipeWire Network Sender with configuration: {self.config_name}")
 
         # Wait for PipeWire to be available
         max_retries = 30
@@ -264,7 +264,7 @@ class PipeWireClient:
                             retry_count = 0  # Reset retry count on successful connection
 
                 if connected_any:
-                    self.logger.info("Client started successfully, entering main loop")
+                    self.logger.info("Sender started successfully, entering main loop")
                     # Main monitoring loop
                     while self.running:
                         time.sleep(retry_interval)
@@ -288,7 +288,7 @@ class PipeWireClient:
         except KeyboardInterrupt:
             self.logger.info("Received keyboard interrupt")
         finally:
-            self.logger.info("Shutting down client")
+            self.logger.info("Shutting down sender")
             self.unload_all_modules()
 
         return 0
@@ -311,8 +311,8 @@ def main():
         if os.getenv("XDG_CONFIG_HOME"):
             config_dir = os.path.join(os.getenv("XDG_CONFIG_HOME"), "pipewire-network")
 
-    client = PipeWireClient(config_dir, config_name)
-    return client.run()
+    sender = PipeWireSender(config_dir, config_name)
+    return sender.run()
 
 
 if __name__ == "__main__":

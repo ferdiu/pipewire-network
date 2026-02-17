@@ -1,15 +1,16 @@
 [Unit]
-Description=PipeWire Network Server
-After=pipewire-pulse.service
+Description=PipeWire Network Sender (%i)
+After=pipewire-pulse.service network-online.target
 Requires=pipewire-pulse.service
+Wants=network-online.target
 PartOf=pipewire-pulse.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/pipewire-network-server
+ExecStart=/usr/bin/pipewire-network-sender %i
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
-RestartSec=5
+RestartSec=10
 TimeoutStartSec=30
 TimeoutStopSec=10
 

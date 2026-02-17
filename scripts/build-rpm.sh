@@ -4,7 +4,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="${SCRIPT_DIR}/build"
 DIST_DIR="${SCRIPT_DIR}/dist"
-PACKAGE_TYPE="${1:-both}"  # server, client, or both
+PACKAGE_TYPE="${1:-both}"  # receiver, sender, or both
 
 # Respect VERSION from the environment (e.g. set by CI); fall back to default.
 VERSION="${VERSION:-2.0.0}"
@@ -17,85 +17,85 @@ VERSION="${VERSION%-*}"
 
 # Clean and create build directory
 rm -rf "${BUILD_DIR}"
-mkdir -p "${BUILD_DIR}"/{server,client}
+mkdir -p "${BUILD_DIR}"/{receiver,sender}
 
 echo "Building PipeWire Network RPM packages (version: ${VERSION})..."
 
-build_server_rpm() {
-    echo "Building server RPM..."
+build_receiver_rpm() {
+    echo "Building receiver RPM..."
 
     # Create source structure
-    mkdir -p "${BUILD_DIR}/server/rpmbuild"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
-    mkdir -p "${BUILD_DIR}/server/pipewire-network-server-${VERSION}"/{src,systemd,firewalld,config}
+    mkdir -p "${BUILD_DIR}/receiver/rpmbuild"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+    mkdir -p "${BUILD_DIR}/receiver/pipewire-network-receiver-${VERSION}"/{src,systemd,firewalld,config}
 
     # Copy files
-    cp "${SCRIPT_DIR}/src/pipewire-network-server" "${BUILD_DIR}/server/pipewire-network-server-${VERSION}/src/"
-    cp "${SCRIPT_DIR}/systemd/pipewire-network-server.service" "${BUILD_DIR}/server/pipewire-network-server-${VERSION}/systemd/"
-    cp "${SCRIPT_DIR}/firewalld/pipewire-network.xml" "${BUILD_DIR}/server/pipewire-network-server-${VERSION}/firewalld/"
-    cp "${SCRIPT_DIR}/config/server.json" "${BUILD_DIR}/server/pipewire-network-server-${VERSION}/config/"
-    cp "${SCRIPT_DIR}/README.md" "${BUILD_DIR}/server/pipewire-network-server-${VERSION}/"
-    cp "${SCRIPT_DIR}/LICENSE" "${BUILD_DIR}/server/pipewire-network-server-${VERSION}/"
+    cp "${SCRIPT_DIR}/src/pipewire-network-receiver" "${BUILD_DIR}/receiver/pipewire-network-receiver-${VERSION}/src/"
+    cp "${SCRIPT_DIR}/systemd/pipewire-network-receiver.service" "${BUILD_DIR}/receiver/pipewire-network-receiver-${VERSION}/systemd/"
+    cp "${SCRIPT_DIR}/firewalld/pipewire-network.xml" "${BUILD_DIR}/receiver/pipewire-network-receiver-${VERSION}/firewalld/"
+    cp "${SCRIPT_DIR}/config/receiver.json" "${BUILD_DIR}/receiver/pipewire-network-receiver-${VERSION}/config/"
+    cp "${SCRIPT_DIR}/README.md" "${BUILD_DIR}/receiver/pipewire-network-receiver-${VERSION}/"
+    cp "${SCRIPT_DIR}/LICENSE" "${BUILD_DIR}/receiver/pipewire-network-receiver-${VERSION}/"
 
     # Create tarball
-    cd "${BUILD_DIR}/server"
-    tar czf "rpmbuild/SOURCES/pipewire-network-server-${VERSION}.tar.gz" pipewire-network-server-${VERSION}/
+    cd "${BUILD_DIR}/receiver"
+    tar czf "rpmbuild/SOURCES/pipewire-network-receiver-${VERSION}.tar.gz" pipewire-network-receiver-${VERSION}/
 
     # Copy spec file
-    cp "${SCRIPT_DIR}/rpm/pipewire-network-server.spec" "rpmbuild/SPECS/"
+    cp "${SCRIPT_DIR}/rpm/pipewire-network-receiver.spec" "rpmbuild/SPECS/"
 
     # Build RPM
-    rpmbuild --define "_topdir $(pwd)/rpmbuild" -ba "rpmbuild/SPECS/pipewire-network-server.spec"
+    rpmbuild --define "_topdir $(pwd)/rpmbuild" -ba "rpmbuild/SPECS/pipewire-network-receiver.spec"
 
-    echo "Server RPM built: ${BUILD_DIR}/server/rpmbuild/RPMS/"
+    echo "Receiver RPM built: ${BUILD_DIR}/receiver/rpmbuild/RPMS/"
 
     # Copy rpms to dist directory
     mkdir -p "${DIST_DIR}"
-    cp "${BUILD_DIR}/server/rpmbuild/RPMS/noarch/"*.rpm "${DIST_DIR}/"
+    cp "${BUILD_DIR}/receiver/rpmbuild/RPMS/noarch/"*.rpm "${DIST_DIR}/"
 }
 
-build_client_rpm() {
-    echo "Building client RPM..."
+build_sender_rpm() {
+    echo "Building sender RPM..."
 
     # Create source structure
-    mkdir -p "${BUILD_DIR}/client/rpmbuild"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
-    mkdir -p "${BUILD_DIR}/client/pipewire-network-client-${VERSION}"/{src,systemd,config}
+    mkdir -p "${BUILD_DIR}/sender/rpmbuild"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+    mkdir -p "${BUILD_DIR}/sender/pipewire-network-sender-${VERSION}"/{src,systemd,config}
 
     # Copy files
-    cp "${SCRIPT_DIR}/src/pipewire-network-client" "${BUILD_DIR}/client/pipewire-network-client-${VERSION}/src/"
-    cp "${SCRIPT_DIR}/src/pipewire-network-client-config" "${BUILD_DIR}/client/pipewire-network-client-${VERSION}/src/"
-    cp "${SCRIPT_DIR}/systemd/pipewire-network-client@.service" "${BUILD_DIR}/client/pipewire-network-client-${VERSION}/systemd/"
-    cp "${SCRIPT_DIR}/systemd/pipewire-network-client.service" "${BUILD_DIR}/client/pipewire-network-client-${VERSION}/systemd/"
-    cp "${SCRIPT_DIR}/config/client.json" "${BUILD_DIR}/client/pipewire-network-client-${VERSION}/config/"
-    cp "${SCRIPT_DIR}/README.md" "${BUILD_DIR}/client/pipewire-network-client-${VERSION}/"
-    cp "${SCRIPT_DIR}/LICENSE" "${BUILD_DIR}/client/pipewire-network-client-${VERSION}/"
+    cp "${SCRIPT_DIR}/src/pipewire-network-sender" "${BUILD_DIR}/sender/pipewire-network-sender-${VERSION}/src/"
+    cp "${SCRIPT_DIR}/src/pipewire-network-sender-config" "${BUILD_DIR}/sender/pipewire-network-sender-${VERSION}/src/"
+    cp "${SCRIPT_DIR}/systemd/pipewire-network-sender@.service" "${BUILD_DIR}/sender/pipewire-network-sender-${VERSION}/systemd/"
+    cp "${SCRIPT_DIR}/systemd/pipewire-network-sender.service" "${BUILD_DIR}/sender/pipewire-network-sender-${VERSION}/systemd/"
+    cp "${SCRIPT_DIR}/config/sender.json" "${BUILD_DIR}/sender/pipewire-network-sender-${VERSION}/config/"
+    cp "${SCRIPT_DIR}/README.md" "${BUILD_DIR}/sender/pipewire-network-sender-${VERSION}/"
+    cp "${SCRIPT_DIR}/LICENSE" "${BUILD_DIR}/sender/pipewire-network-sender-${VERSION}/"
 
     # Create tarball
-    cd "${BUILD_DIR}/client"
-    tar czf "rpmbuild/SOURCES/pipewire-network-client-${VERSION}.tar.gz" pipewire-network-client-${VERSION}/
+    cd "${BUILD_DIR}/sender"
+    tar czf "rpmbuild/SOURCES/pipewire-network-sender-${VERSION}.tar.gz" pipewire-network-sender-${VERSION}/
 
     # Copy spec file
-    cp "${SCRIPT_DIR}/rpm/pipewire-network-client.spec" "rpmbuild/SPECS/"
+    cp "${SCRIPT_DIR}/rpm/pipewire-network-sender.spec" "rpmbuild/SPECS/"
 
     # Build RPM
-    rpmbuild --define "_topdir $(pwd)/rpmbuild" -ba "rpmbuild/SPECS/pipewire-network-client.spec"
+    rpmbuild --define "_topdir $(pwd)/rpmbuild" -ba "rpmbuild/SPECS/pipewire-network-sender.spec"
 
-    echo "Client RPM built: ${BUILD_DIR}/client/rpmbuild/RPMS/"
+    echo "Sender RPM built: ${BUILD_DIR}/sender/rpmbuild/RPMS/"
 
     # Copy rpms to dist directory
     mkdir -p "${DIST_DIR}"
-    cp "${BUILD_DIR}/client/rpmbuild/RPMS/noarch/"*.rpm "${DIST_DIR}/"
+    cp "${BUILD_DIR}/sender/rpmbuild/RPMS/noarch/"*.rpm "${DIST_DIR}/"
 }
 
 case "${PACKAGE_TYPE}" in
-    server)
-        build_server_rpm
+    receiver)
+        build_receiver_rpm
         ;;
-    client)
-        build_client_rpm
+    sender)
+        build_sender_rpm
         ;;
     both|*)
-        build_server_rpm
-        build_client_rpm
+        build_receiver_rpm
+        build_sender_rpm
         ;;
 esac
 
