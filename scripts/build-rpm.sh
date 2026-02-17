@@ -40,6 +40,9 @@ build_server_rpm() {
     cd "${BUILD_DIR}/server"
     tar czf "rpmbuild/SOURCES/pipewire-network-server-${VERSION}.tar.gz" pipewire-network-server-${VERSION}/
 
+    # Copy spec file
+    cp "${SCRIPT_DIR}/rpm/pipewire-network-server.spec" "rpmbuild/SPECS/"
+
     # Build RPM
     rpmbuild --define "_topdir $(pwd)/rpmbuild" -ba "rpmbuild/SPECS/pipewire-network-server.spec"
 
@@ -69,6 +72,9 @@ build_client_rpm() {
     # Create tarball
     cd "${BUILD_DIR}/client"
     tar czf "rpmbuild/SOURCES/pipewire-network-client-${VERSION}.tar.gz" pipewire-network-client-${VERSION}/
+
+    # Copy spec file
+    cp "${SCRIPT_DIR}/rpm/pipewire-network-client.spec" "rpmbuild/SPECS/"
 
     # Build RPM
     rpmbuild --define "_topdir $(pwd)/rpmbuild" -ba "rpmbuild/SPECS/pipewire-network-client.spec"
