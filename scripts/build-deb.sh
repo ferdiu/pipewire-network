@@ -5,17 +5,21 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="${SCRIPT_DIR}/build-deb"
 DIST_DIR="${SCRIPT_DIR}/dist"
 PACKAGE_TYPE="${1:-both}"  # server, client, or both
-VERSION="2.0.0"
+
+# Respect VERSION from the environment (e.g. set by CI); fall back to default.
+VERSION="${VERSION:-2.0.0}"
+
+# Strip a leading "v" so "v2.0.0-rc1" becomes "2.0.0-rc1"
+VERSION="${VERSION#v}"
 
 # Clean and create build directory
 rm -rf "${BUILD_DIR}"
 mkdir -p "${BUILD_DIR}"/{server,client}
 
-echo "Building PipeWire Network DEB packages..."
+echo "Building PipeWire Network DEB packages (version: ${VERSION})..."
 
 build_server_deb() {
     echo "Building server DEB..."
-
     # Create package structure
     cd "${BUILD_DIR}/server"
     mkdir -p pipewire-network-server-${VERSION}/{src,systemd,firewalld,config,debian}
@@ -44,7 +48,6 @@ build_server_deb() {
 
 build_client_deb() {
     echo "Building client DEB..."
-
     # Create package structure
     cd "${BUILD_DIR}/client"
     mkdir -p pipewire-network-client-${VERSION}/{src,systemd,config,debian}

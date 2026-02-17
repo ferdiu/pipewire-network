@@ -5,13 +5,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="${SCRIPT_DIR}/build"
 DIST_DIR="${SCRIPT_DIR}/dist"
 PACKAGE_TYPE="${1:-both}"  # server, client, or both
-VERSION="2.0.0"
+
+# Respect VERSION from the environment (e.g. set by CI); fall back to default.
+VERSION="${VERSION:-2.0.0}"
+
+# Strip a leading "v" so "v2.0.0-rc1" becomes "2.0.0-rc1"
+VERSION="${VERSION#v}"
 
 # Clean and create build directory
 rm -rf "${BUILD_DIR}"
 mkdir -p "${BUILD_DIR}"/{server,client}
 
-echo "Building PipeWire Network packages..."
+echo "Building PipeWire Network RPM packages (version: ${VERSION})..."
 
 build_server_rpm() {
     echo "Building server RPM..."
@@ -32,8 +37,10 @@ build_server_rpm() {
     cd "${BUILD_DIR}/server"
     tar czf "rpmbuild/SOURCES/pipewire-network-server-${VERSION}.tar.gz" pipewire-network-server-${VERSION}/
 
-    # Copy spec file
-    cp "${SCRIPT_DIR}/rpm/pipewire-network-server.spec" "rpmbuild/SPECS/"
+    # Copy spec file and inject version
+    sed "s/^Version:.*/Version:        ${VERSION}/" \
+        "${SCRIPT_DIR}/rpm/pipewire-network-server.spec" \
+        > "rpmbuild/SPECS/pipewire-network-server.spec"
 
     # Build RPM
     rpmbuild --define "_topdir $(pwd)/rpmbuild" -ba "rpmbuild/SPECS/pipewire-network-server.spec"
@@ -65,8 +72,10 @@ build_client_rpm() {
     cd "${BUILD_DIR}/client"
     tar czf "rpmbuild/SOURCES/pipewire-network-client-${VERSION}.tar.gz" pipewire-network-client-${VERSION}/
 
-    # Copy spec file
-    cp "${SCRIPT_DIR}/rpm/pipewire-network-client.spec" "rpmbuild/SPECS/"
+    # Copy spec file and inject version
+    sed "s/^Version:.*/Version:        ${VERSION}/" \
+        "${SCRIPT_DIR}/rpm/pipewire-network-client.spec" \
+        > "rpmbuild/SPECS/pipewire-network-client.spec"
 
     # Build RPM
     rpmbuild --define "_topdir $(pwd)/rpmbuild" -ba "rpmbuild/SPECS/pipewire-network-client.spec"
