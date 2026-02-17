@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """
 PipeWire Network Receiver
-Manages PipeWire RTP sender module with configuration file support
+Manages PipeWire RTP receiver module with configuration file support.
+Receives an RTP audio stream from a remote sender and plays it locally.
+
+Command executed:
+  pactl load-module module-rtp-recv latency_msec=<n> port=<n> sink=<default_sink>
 """
 import json
 import logging
@@ -11,7 +15,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 
 
 class PipeWireReceiver:
@@ -45,9 +49,9 @@ class PipeWireReceiver:
     def load_config(self) -> Dict:
         """Load configuration from JSON file"""
         default_config = {
-            "rtp_port": 46998,
-            "source_address": "0.0.0.0",
-            "mtu": 1280,
+            "rtp_port": 9875,
+            "latency_msec": 20,
+            "sink": None,
             "sample_spec": None,
             "channel_map": None
         }
@@ -71,7 +75,7 @@ class PipeWireReceiver:
 
         return default_config
 
-    def check_pulseaudio(self) -> bool:
+    def check_pipewire(self) -> bool:
         """Check if PipeWire (via pipewire-pulse) is running and accessible"""
         try:
             result = subprocess.run(
@@ -90,19 +94,39 @@ class PipeWireReceiver:
             self.logger.error(f"Error checking PipeWire: {e}")
             return False
 
-    def load_module(self, config: Dict) -> bool:
-        """Load the PipeWire RTP sender module"""
-        # Build module arguments
-        args = [
-            f"destination={config['rtp_destination']}",
-            f"port={config['rtp_port']}",
-            f"mtu={config['mtu']}",
-            f"loop={str(config['loop']).lower()}",
-            f"ttl={config['ttl']}"
-        ]
+    def get_default_sink(self) -> Optional[str]:
+        """Retrieve the current default sink from PipeWire"""
+        try:
+            result = subprocess.run(
+                ['pactl', 'get-default-sink'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                sink = result.stdout.strip()
+                self.logger.info(f"Default sink: {sink}")
+                return sink
+            else:
+                self.logger.error(f"Failed to get default sink: {result.stderr}")
+                return None
+        except subprocess.SubprocessError as e:
+            self.logger.error(f"Error getting default sink: {e}")
+            return None
 
-        if config.get('source_address') and config['source_address'] != "0.0.0.0":
-            args.append(f"source={config['source_address']}")
+    def load_module(self, config: Dict) -> bool:
+        """Load the PipeWire RTP receiver module.
+
+        Executes:
+          pactl load-module module-rtp-recv latency_msec=<n> port=<n> sink=<sink>
+        """
+        # Determine sink: use configured value or dynamically retrieve default
+        sink = config.get('sink') or self.get_default_sink()
+        args = [
+            f"port={config['rtp_port']}",
+            f"latency_msec={config['latency_msec']}",
+            f"sink={sink}"
+        ]
 
         if config.get('sample_spec'):
             args.append(f"format={config['sample_spec']}")
@@ -110,7 +134,8 @@ class PipeWireReceiver:
         if config.get('channel_map'):
             args.append(f"channel_map={config['channel_map']}")
 
-        cmd = ['pactl', 'load-module', 'module-rtp-send'] + args
+        cmd = ['pactl', 'load-module', 'module-rtp-recv'] + args
+        self.logger.debug(f"Running: {' '.join(cmd)}")
 
         try:
             result = subprocess.run(
@@ -123,7 +148,8 @@ class PipeWireReceiver:
                 self.module_id = result.stdout.strip()
                 self.logger.info(f"Loaded module with ID: {self.module_id}")
                 self.logger.info(
-                    f"RTP sender streaming to {config['rtp_destination']}:{config['rtp_port']}"
+                    f"RTP receiver listening on port {config['rtp_port']} "
+                    f"→ sink '{sink}'"
                 )
                 return True
             else:
@@ -134,7 +160,7 @@ class PipeWireReceiver:
             return False
 
     def unload_module(self) -> bool:
-        """Unload the PipeWire RTP sender module"""
+        """Unload the PipeWire RTP receiver module"""
         if not self.module_id:
             return True
 
@@ -163,7 +189,7 @@ class PipeWireReceiver:
         # Wait for PipeWire to be available
         max_retries = 30
         for retry in range(max_retries):
-            if self.check_pulseaudio():
+            if self.check_pipewire():
                 break
             if not self.running:
                 return 1
@@ -176,7 +202,7 @@ class PipeWireReceiver:
         # Load configuration and start module
         config = self.load_config()
         if not self.load_module(config):
-            self.logger.error("Failed to load PipeWire module")
+            self.logger.error("Failed to load PipeWire RTP receiver module")
             return 1
 
         # Main loop - keep the service running
@@ -185,7 +211,7 @@ class PipeWireReceiver:
             while self.running:
                 time.sleep(1)
                 # Periodically check if PipeWire is still running
-                if not self.check_pulseaudio():
+                if not self.check_pipewire():
                     self.logger.error("PipeWire is no longer accessible")
                     break
         except KeyboardInterrupt:
@@ -199,10 +225,8 @@ class PipeWireReceiver:
 
 def main():
     if os.geteuid() == 0:
-        # Use system-wide config directory
         config_dir = "/etc/pipewire-network"
     else:
-        # Use user-specific config directory
         config_dir = os.path.expanduser("~/.config/pipewire-network")
         if os.getenv("XDG_CONFIG_HOME"):
             config_dir = os.path.join(os.getenv("XDG_CONFIG_HOME"), "pipewire-network")

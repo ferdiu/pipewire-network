@@ -14,10 +14,8 @@ from typing import Dict
 class SenderConfigManager:
     def __init__(self):
         if os.geteuid() == 0:
-            # Use system-wide config directory
             self.config_dir = Path("/etc/pipewire-network")
         else:
-            # Use user-specific config directory
             self.config_dir = Path(os.path.expanduser("~/.config/pipewire-network"))
             if os.getenv("XDG_CONFIG_HOME"):
                 self.config_dir = Path(os.path.join(os.getenv("XDG_CONFIG_HOME"), "pipewire-network"))
@@ -57,12 +55,14 @@ class SenderConfigManager:
             print(f"\n📋 Configuration: {name}")
             print(f"   Streams: {len(config.get('streams', []))}")
             for i, stream in enumerate(config.get('streams', []), 1):
-                rtp_destination = stream.get('rtp_destination', 'unknown')
-                rtp_port = stream.get('rtp_port', 'unknown')
-                sink_name = stream.get('sink_name', 'unknown')
-                print(f"   └─ {i}. {rtp_destination}:{rtp_port} → {sink_name}")
+                sink_name        = stream.get('sink_name', 'unknown')
+                rtp_destination  = stream.get('rtp_destination', 'unknown')
+                rtp_port         = stream.get('rtp_port', 'unknown')
+                latency_msec     = stream.get('latency_msec', 20)
+                print(f"   └─ {i}. sink='{sink_name}' → {rtp_destination}:{rtp_port} "
+                      f"(latency: {latency_msec}ms)")
             retry_interval = config.get('retry_interval', 'unknown')
-            max_retries = config.get('max_retries', 'unknown')
+            max_retries    = config.get('max_retries', 'unknown')
             print(f"   Settings: retry_interval={retry_interval}, max_retries={max_retries}")
 
     def show_configuration(self, config_name: str) -> None:
@@ -73,10 +73,9 @@ class SenderConfigManager:
             print(f"Available configurations: {list(configs.keys())}")
             return
 
-        config = configs[config_name]
         print(f"Configuration: {config_name}")
         print("=" * 50)
-        print(json.dumps(config, indent=2))
+        print(json.dumps(configs[config_name], indent=2))
 
     def validate_configuration(self, config_name: str) -> bool:
         """Validate a specific configuration"""
@@ -91,7 +90,6 @@ class SenderConfigManager:
         print(f"Validating configuration: {config_name}")
         print("-" * 40)
 
-        # Check required fields
         if 'streams' not in config:
             print("❌ Missing 'streams' field")
             valid = False
@@ -100,9 +98,9 @@ class SenderConfigManager:
             valid = False
         else:
             print(f"✅ Found {len(config['streams'])} stream(s)")
-            # Validate each stream
             for i, stream in enumerate(config['streams'], 1):
                 print(f"   Stream {i}:")
+
                 if 'rtp_destination' not in stream:
                     print("   ❌ Missing 'rtp_destination' field")
                     valid = False
@@ -124,7 +122,17 @@ class SenderConfigManager:
                         print(f"   ❌ Invalid rtp_port: {stream['rtp_port']} (must be numeric)")
                         valid = False
 
-        # Check optional fields with reasonable defaults
+                if 'sink_name' not in stream:
+                    print("   ⚠️  No 'sink_name' specified, a default will be used")
+                else:
+                    print(f"   ✅ Sink name: {stream['sink_name']}")
+
+                latency_msec = stream.get('latency_msec', 20)
+                if not isinstance(latency_msec, (int, float)) or latency_msec <= 0:
+                    print(f"   ⚠️  Invalid latency_msec: {latency_msec} (using default: 20)")
+                else:
+                    print(f"   ✅ Latency: {latency_msec}ms")
+
         retry_interval = config.get('retry_interval', 10)
         if not isinstance(retry_interval, (int, float)) or retry_interval <= 0:
             print(f"⚠️  Invalid retry_interval: {retry_interval} (using default: 10)")
@@ -147,7 +155,6 @@ class SenderConfigManager:
     def list_services(self) -> None:
         """List systemd user services for PipeWire network sender"""
         try:
-            # List all sender services (both template instances and regular)
             result = subprocess.run([
                 'systemctl', '--user', 'list-units', '--all',
                 'pipewire-network-sender*'
@@ -187,7 +194,6 @@ class SenderConfigManager:
 
         service_name = f"pipewire-network-sender@{config_name}.service"
         try:
-            # Enable the service
             print(f"Enabling {service_name}...")
             result = subprocess.run([
                 'systemctl', '--user', 'enable', service_name
@@ -199,7 +205,6 @@ class SenderConfigManager:
                 print(f"❌ Failed to enable service: {result.stderr}")
                 return
 
-            # Start the service
             print(f"Starting {service_name}...")
             result = subprocess.run([
                 'systemctl', '--user', 'start', service_name
@@ -218,7 +223,6 @@ class SenderConfigManager:
         """Stop and disable a service for a specific configuration"""
         service_name = f"pipewire-network-sender@{config_name}.service"
         try:
-            # Stop the service
             print(f"Stopping {service_name}...")
             result = subprocess.run([
                 'systemctl', '--user', 'stop', service_name
@@ -229,7 +233,6 @@ class SenderConfigManager:
             else:
                 print(f"⚠️  Service stop result: {result.stderr}")
 
-            # Disable the service
             print(f"Disabling {service_name}...")
             result = subprocess.run([
                 'systemctl', '--user', 'disable', service_name
@@ -249,10 +252,11 @@ class SenderConfigManager:
             "default": {
                 "streams": [
                     {
-                        "rtp_destination": "224.0.0.56",
-                        "rtp_port": 46998,
-                        "sink_name": "network_sink_main",
-                        "sink_description": "Main Network Audio Sink"
+                        "rtp_destination": "receiver-hostname",
+                        "rtp_port": 9875,
+                        "latency_msec": 20,
+                        "sink_name": "rtp_sink_main",
+                        "sink_description": "RTP Network Audio Sender"
                     }
                 ],
                 "auto_connect": True,
@@ -262,10 +266,11 @@ class SenderConfigManager:
             "office": {
                 "streams": [
                     {
-                        "rtp_destination": "224.0.0.57",
-                        "rtp_port": 46998,
-                        "sink_name": "office_speakers",
-                        "sink_description": "Office Speakers"
+                        "rtp_destination": "office-speakers",
+                        "rtp_port": 9875,
+                        "latency_msec": 20,
+                        "sink_name": "rtp_sink_office",
+                        "sink_description": "Office RTP Audio Sender"
                     }
                 ],
                 "auto_connect": True,
@@ -274,15 +279,14 @@ class SenderConfigManager:
             }
         }
 
-        # Create config directory if it doesn't exist
         self.config_dir.mkdir(parents=True, exist_ok=True)
 
-        # Write sample config
         with open(self.config_file, 'w') as f:
             json.dump(sample_config, f, indent=2)
 
         print(f"✅ Sample configuration created at: {self.config_file}")
-        print("\nEdit this file to add your own configurations.")
+        print("\nEdit this file to configure your streams.")
+        print("Set 'rtp_destination' to the hostname or IP of the receiver machine.")
 
 
 def main():
@@ -306,7 +310,7 @@ def main():
         print("Examples:")
         print("  pipewire-network-sender-config list")
         print("  pipewire-network-sender-config enable office")
-        print("  pipewire-network-sender-config status home")
+        print("  pipewire-network-sender-config status default")
         return 1
 
     command = sys.argv[1].lower()

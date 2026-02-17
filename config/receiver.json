@@ -1,7 +1,7 @@
 {
-  "rtp_port": 46998,
-  "source_address": "0.0.0.0",
-  "mtu": 1280,
+  "rtp_port": 9875,
+  "latency_msec": 20,
+  "sink": null,
   "sample_spec": null,
   "channel_map": null
 }

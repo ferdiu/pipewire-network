@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """
 PipeWire Network Sender
-Manages PipeWire RTP receiver module with configuration file support
+Manages PipeWire RTP sender module with configuration file support.
+Creates a null sink that applications route audio to, then forwards
+that audio as an RTP stream to a remote receiver.
+
+Commands executed per stream:
+  1. pactl load-module module-null-sink sink_name=<name> sink_properties="device.description=<desc>"
+  2. pactl load-module module-rtp-send source=<name>.monitor destination_ip=<host> port=<n> latency_msec=<n>
 """
 import json
 import logging
@@ -11,7 +17,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 
 
 class PipeWireSender:
@@ -19,7 +25,8 @@ class PipeWireSender:
         self.config_dir = Path(config_dir)
         self.config_file = self.config_dir / "sender.json"
         self.config_name = config_name
-        self.module_ids = []
+        # Each entry is a (null_sink_module_id, rtp_send_module_id) pair
+        self.module_pairs: List[Tuple[str, str]] = []
         self.running = True
 
         # Create config directory if it doesn't exist
@@ -49,10 +56,11 @@ class PipeWireSender:
             "default": {
                 "streams": [
                     {
-                        "rtp_destination": "224.0.0.56",
-                        "rtp_port": 46998,
-                        "sink_name": "network_sink",
-                        "sink_description": "Network Audio Sink"
+                        "rtp_destination": "192.168.1.100",
+                        "rtp_port": 9875,
+                        "latency_msec": 20,
+                        "sink_name": "rtp_sink",
+                        "sink_description": "RTP Network Audio Sender"
                     }
                 ],
                 "auto_connect": True,
@@ -69,9 +77,7 @@ class PipeWireSender:
                 # Check if the file uses old format (no named configurations)
                 if 'streams' in all_configs:
                     self.logger.warning("Old configuration format detected, migrating to new format")
-                    # Convert old format to new format
                     all_configs = {"default": all_configs}
-                    # Save the migrated config
                     with open(self.config_file, 'w') as f:
                         json.dump(all_configs, f, indent=2)
                     self.logger.info("Configuration migrated to new format")
@@ -80,7 +86,6 @@ class PipeWireSender:
                 if self.config_name not in all_configs:
                     self.logger.error(f"Configuration '{self.config_name}' not found in config file")
                     self.logger.info(f"Available configurations: {list(all_configs.keys())}")
-                    # Use default if available, otherwise use the first available config
                     if "default" in all_configs:
                         self.config_name = "default"
                         self.logger.info("Using 'default' configuration instead")
@@ -100,10 +105,8 @@ class PipeWireSender:
 
                 self.logger.info(f"Loaded configuration '{self.config_name}' from {self.config_file}")
             else:
-                all_configs = default_config
                 config = default_config["default"]
                 self.logger.warning(f"Config file {self.config_file} not found, using defaults")
-                # Create default config file
                 self.config_dir.mkdir(parents=True, exist_ok=True)
                 with open(self.config_file, 'w') as f:
                     json.dump(default_config, f, indent=2)
@@ -114,7 +117,7 @@ class PipeWireSender:
 
         return config
 
-    def check_pulseaudio(self) -> bool:
+    def check_pipewire(self) -> bool:
         """Check if PipeWire (via pipewire-pulse) is running and accessible"""
         try:
             result = subprocess.run(
@@ -133,53 +136,105 @@ class PipeWireSender:
             self.logger.error(f"Error checking PipeWire: {e}")
             return False
 
-    def load_rtp_recv(self, stream_config: Dict) -> Optional[str]:
-        """Load an RTP receiver module for a specific stream"""
-        rtp_destination = stream_config['rtp_destination']
-        rtp_port = stream_config['rtp_port']
-        sink_name = stream_config.get(
-            'sink_name',
-            f"rtp_sink_{self.config_name}_{rtp_destination}_{rtp_port}"
-        )
-        sink_description = stream_config.get(
-            'sink_description',
-            f"RTP from {rtp_destination}:{rtp_port} ({self.config_name})"
-        )
+    def load_null_sink(self, sink_name: str, sink_description: str) -> Optional[str]:
+        """Create a null sink that applications will route audio into.
 
-        args = [
-            f"destination={rtp_destination}",
-            f"port={rtp_port}",
-            f"sink={sink_name}",
-            f"sink_properties=device.description='{sink_description}'"
+        Executes:
+          pactl load-module module-null-sink sink_name=<name> sink_properties="device.description=<desc>"
+        """
+        cmd = [
+            'pactl', 'load-module', 'module-null-sink',
+            f"sink_name={sink_name}",
+            f"sink_properties=device.description={sink_description}"
         ]
-
-        cmd = ['pactl', 'load-module', 'module-rtp-recv'] + args
+        self.logger.debug(f"Running: {' '.join(cmd)}")
 
         try:
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=15
+                timeout=10
+            )
+            if result.returncode == 0:
+                module_id = result.stdout.strip()
+                self.logger.info(f"Created null sink '{sink_name}' (module ID: {module_id})")
+                return module_id
+            else:
+                self.logger.error(f"Failed to create null sink '{sink_name}': {result.stderr}")
+                return None
+        except subprocess.SubprocessError as e:
+            self.logger.error(f"Error creating null sink: {e}")
+            return None
+
+    def load_rtp_send(self, sink_name: str, rtp_destination: str,
+                      rtp_port: int, latency_msec: int) -> Optional[str]:
+        """Load the RTP sender module connected to the null sink's monitor.
+
+        Executes:
+          pactl load-module module-rtp-send source=<sink>.monitor destination_ip=<host> port=<n> latency_msec=<n>
+        """
+        cmd = [
+            'pactl', 'load-module', 'module-rtp-send',
+            f"source={sink_name}.monitor",
+            f"destination_ip={rtp_destination}",
+            f"port={rtp_port}",
+            f"latency_msec={latency_msec}"
+        ]
+        self.logger.debug(f"Running: {' '.join(cmd)}")
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=10
             )
             if result.returncode == 0:
                 module_id = result.stdout.strip()
                 self.logger.info(
-                    f"Loaded RTP receiver '{sink_name}' for {rtp_destination}:{rtp_port} "
-                    f"(module ID: {module_id})"
+                    f"Loaded RTP sender '{sink_name}.monitor' → "
+                    f"{rtp_destination}:{rtp_port} (module ID: {module_id})"
                 )
                 return module_id
             else:
                 self.logger.error(
-                    f"Failed to load RTP receiver for {rtp_destination}:{rtp_port}: {result.stderr}"
+                    f"Failed to load RTP sender to {rtp_destination}:{rtp_port}: {result.stderr}"
                 )
                 return None
         except subprocess.SubprocessError as e:
-            self.logger.error(f"Error loading RTP receiver: {e}")
+            self.logger.error(f"Error loading RTP sender: {e}")
             return None
 
+    def load_stream(self, stream_config: Dict) -> bool:
+        """Load a null sink and connect an RTP sender to it for a single stream entry.
+        Returns True if both modules loaded successfully, False otherwise.
+        On partial failure the null sink is cleaned up before returning.
+        """
+        rtp_destination = stream_config['rtp_destination']
+        rtp_port = stream_config['rtp_port']
+        latency_msec = stream_config.get('latency_msec', 20)
+        sink_name = stream_config.get('sink_name', f"rtp_sink_{self.config_name}")
+        sink_description = stream_config.get('sink_description', f"RTP Sender ({self.config_name})")
+
+        # Step 1 — create null sink
+        null_sink_id = self.load_null_sink(sink_name, sink_description)
+        if not null_sink_id:
+            return False
+
+        # Step 2 — attach RTP sender to the sink's monitor
+        rtp_send_id = self.load_rtp_send(sink_name, rtp_destination, rtp_port, latency_msec)
+        if not rtp_send_id:
+            # Clean up the null sink we just created
+            self.logger.warning("RTP sender failed, removing null sink")
+            self.unload_module(null_sink_id)
+            return False
+
+        self.module_pairs.append((null_sink_id, rtp_send_id))
+        return True
+
     def unload_module(self, module_id: str) -> bool:
-        """Unload a PipeWire module"""
+        """Unload a single PipeWire module by ID"""
         try:
             result = subprocess.run(
                 ['pactl', 'unload-module', module_id],
@@ -198,10 +253,25 @@ class PipeWireSender:
             return False
 
     def unload_all_modules(self) -> None:
-        """Unload all loaded modules"""
-        for module_id in self.module_ids.copy():
-            if self.unload_module(module_id):
-                self.module_ids.remove(module_id)
+        """Unload all RTP sender and null sink modules in reverse load order"""
+        for null_sink_id, rtp_send_id in reversed(self.module_pairs.copy()):
+            # Unload RTP sender first, then the null sink it depended on
+            self.unload_module(rtp_send_id)
+            self.unload_module(null_sink_id)
+        self.module_pairs.clear()
+
+    def sink_exists(self, sink_name: str) -> bool:
+        """Check whether a named sink is already present in PipeWire"""
+        try:
+            result = subprocess.run(
+                ['pactl', 'list', 'sinks', 'short'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            return result.returncode == 0 and sink_name in result.stdout
+        except Exception:
+            return False
 
     def run(self) -> int:
         """Main run loop"""
@@ -210,7 +280,7 @@ class PipeWireSender:
         # Wait for PipeWire to be available
         max_retries = 30
         for retry in range(max_retries):
-            if self.check_pulseaudio():
+            if self.check_pipewire():
                 break
             if not self.running:
                 return 1
@@ -229,59 +299,36 @@ class PipeWireSender:
         # Main loop
         try:
             while self.running:
-                # Try to load receivers for all configured streams
-                connected_any = False
+                loaded_any = False
+
                 for stream_config in config['streams']:
-                    rtp_destination = stream_config['rtp_destination']
-                    rtp_port = stream_config['rtp_port']
+                    sink_name = stream_config.get('sink_name', f"rtp_sink_{self.config_name}")
 
-                    # Check if we already have a receiver for this stream
-                    sink_name = stream_config.get(
-                        'sink_name',
-                        f"rtp_sink_{self.config_name}_{rtp_destination}_{rtp_port}"
-                    )
-                    already_connected = False
+                    # Skip streams whose null sink is already present
+                    if self.sink_exists(sink_name):
+                        self.logger.debug(f"Sink '{sink_name}' already exists, skipping")
+                        loaded_any = True
+                        continue
 
-                    # Check if sink already exists
-                    try:
-                        result = subprocess.run(
-                            ['pactl', 'list', 'sinks', 'short'],
-                            capture_output=True,
-                            text=True,
-                            timeout=5
-                        )
-                        if result.returncode == 0 and sink_name in result.stdout:
-                            already_connected = True
-                            connected_any = True
-                    except Exception:
-                        pass
+                    if self.load_stream(stream_config):
+                        loaded_any = True
+                        retry_count = 0  # Reset retry count on any successful load
 
-                    if not already_connected:
-                        module_id = self.load_rtp_recv(stream_config)
-                        if module_id:
-                            self.module_ids.append(module_id)
-                            connected_any = True
-                            retry_count = 0  # Reset retry count on successful connection
-
-                if connected_any:
+                if loaded_any:
                     self.logger.info("Sender started successfully, entering main loop")
-                    # Main monitoring loop
                     while self.running:
                         time.sleep(retry_interval)
-                        # Check if PipeWire is still running
-                        if not self.check_pulseaudio():
+                        if not self.check_pipewire():
                             self.logger.error("PipeWire is no longer accessible")
                             break
-                        # TODO: Could add periodic health checks for RTP receiver sinks here
                     break
                 else:
-                    # No receivers loaded
                     retry_count += 1
                     if max_retries > 0 and retry_count >= max_retries:
                         self.logger.error(f"Max retries ({max_retries}) reached, giving up")
                         return 1
                     self.logger.warning(
-                        f"No streams available, retrying in {retry_interval}s... "
+                        f"Failed to load any streams, retrying in {retry_interval}s... "
                         f"(attempt {retry_count})"
                     )
                     time.sleep(retry_interval)
@@ -299,14 +346,12 @@ def main():
     config_name = "default"
     if len(sys.argv) > 1:
         config_name = sys.argv[1]
-    elif os.getenv("PIPEWIRE_CLIENT_CONFIG"):
-        config_name = os.getenv("PIPEWIRE_CLIENT_CONFIG")
+    elif os.getenv("PIPEWIRE_SENDER_CONFIG"):
+        config_name = os.getenv("PIPEWIRE_SENDER_CONFIG")
 
     if os.geteuid() == 0:
-        # Use system-wide config directory
         config_dir = "/etc/pipewire-network"
     else:
-        # Use user-specific config directory
         config_dir = os.path.expanduser("~/.config/pipewire-network")
         if os.getenv("XDG_CONFIG_HOME"):
             config_dir = os.path.join(os.getenv("XDG_CONFIG_HOME"), "pipewire-network")

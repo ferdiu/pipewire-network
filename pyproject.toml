@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=61"]
-build-backend = "setuptools.backends.legacy:build"
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "pipewire-network"
@@ -9,6 +9,10 @@ description = "PipeWire network audio streaming via RTP"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.8"
+
+[project.urls]
+Homepage = "https://github.com/ferdiu/pipewire-network"
+Issues = "https://github.com/ferdiu/pipewire-network/issues"
 
 [tool.setuptools]
 py-modules = []
