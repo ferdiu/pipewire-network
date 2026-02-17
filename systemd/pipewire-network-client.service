@@ -1,0 +1,24 @@
+[Unit]
+Description=PipeWire Network Client (default)
+After=pipewire-pulse.service network-online.target
+Requires=pipewire-pulse.service
+Wants=network-online.target
+PartOf=pipewire-pulse.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/pipewire-network-client default
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=30
+TimeoutStopSec=10
+
+# Security settings
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+
+[Install]
+WantedBy=pipewire-pulse.service

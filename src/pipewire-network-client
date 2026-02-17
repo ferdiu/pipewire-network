@@ -1,0 +1,319 @@
+#!/usr/bin/env python3
+"""
+PipeWire Network Client
+Manages PipeWire RTP receiver module with configuration file support
+"""
+import json
+import logging
+import os
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Dict, Optional
+
+
+class PipeWireClient:
+    def __init__(self, config_dir: str = "/etc/pipewire-network", config_name: str = "default"):
+        self.config_dir = Path(config_dir)
+        self.config_file = self.config_dir / "client.json"
+        self.config_name = config_name
+        self.module_ids = []
+        self.running = True
+
+        # Create config directory if it doesn't exist
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.StreamHandler(sys.stdout),
+            ]
+        )
+        self.logger = logging.getLogger(__name__)
+
+        # Handle signals for graceful shutdown
+        signal.signal(signal.SIGTERM, self._signal_handler)
+        signal.signal(signal.SIGINT, self._signal_handler)
+
+    def _signal_handler(self, signum: int, frame) -> None:
+        """Handle termination signals"""
+        self.logger.info(f"Received signal {signum}, initiating graceful shutdown")
+        self.running = False
+
+    def load_config(self) -> Dict:
+        """Load configuration from JSON file"""
+        default_config = {
+            "default": {
+                "streams": [
+                    {
+                        "rtp_destination": "224.0.0.56",
+                        "rtp_port": 46998,
+                        "sink_name": "network_sink",
+                        "sink_description": "Network Audio Sink"
+                    }
+                ],
+                "auto_connect": True,
+                "retry_interval": 10,
+                "max_retries": -1
+            }
+        }
+
+        try:
+            if self.config_file.exists():
+                with open(self.config_file, 'r') as f:
+                    all_configs = json.load(f)
+
+                # Check if the file uses old format (no named configurations)
+                if 'streams' in all_configs:
+                    self.logger.warning("Old configuration format detected, migrating to new format")
+                    # Convert old format to new format
+                    all_configs = {"default": all_configs}
+                    # Save the migrated config
+                    with open(self.config_file, 'w') as f:
+                        json.dump(all_configs, f, indent=2)
+                    self.logger.info("Configuration migrated to new format")
+
+                # Get the specific configuration
+                if self.config_name not in all_configs:
+                    self.logger.error(f"Configuration '{self.config_name}' not found in config file")
+                    self.logger.info(f"Available configurations: {list(all_configs.keys())}")
+                    # Use default if available, otherwise use the first available config
+                    if "default" in all_configs:
+                        self.config_name = "default"
+                        self.logger.info("Using 'default' configuration instead")
+                    else:
+                        self.config_name = list(all_configs.keys())[0]
+                        self.logger.info(f"Using '{self.config_name}' configuration instead")
+
+                config = all_configs[self.config_name]
+
+                # Merge with defaults for the specific configuration
+                default_single_config = default_config["default"]
+                if 'streams' not in config:
+                    config['streams'] = default_single_config['streams']
+                for key, value in default_single_config.items():
+                    if key not in config:
+                        config[key] = value
+
+                self.logger.info(f"Loaded configuration '{self.config_name}' from {self.config_file}")
+            else:
+                all_configs = default_config
+                config = default_config["default"]
+                self.logger.warning(f"Config file {self.config_file} not found, using defaults")
+                # Create default config file
+                self.config_dir.mkdir(parents=True, exist_ok=True)
+                with open(self.config_file, 'w') as f:
+                    json.dump(default_config, f, indent=2)
+                self.logger.info(f"Created default config at {self.config_file}")
+        except (json.JSONDecodeError, IOError) as e:
+            self.logger.error(f"Error loading config: {e}, using defaults")
+            config = default_config["default"]
+
+        return config
+
+    def check_pulseaudio(self) -> bool:
+        """Check if PipeWire (via pipewire-pulse) is running and accessible"""
+        try:
+            result = subprocess.run(
+                ['pactl', 'info'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                self.logger.debug("PipeWire is accessible")
+                return True
+            else:
+                self.logger.error("PipeWire is not accessible")
+                return False
+        except subprocess.SubprocessError as e:
+            self.logger.error(f"Error checking PipeWire: {e}")
+            return False
+
+    def load_rtp_recv(self, stream_config: Dict) -> Optional[str]:
+        """Load an RTP receiver module for a specific stream"""
+        rtp_destination = stream_config['rtp_destination']
+        rtp_port = stream_config['rtp_port']
+        sink_name = stream_config.get(
+            'sink_name',
+            f"rtp_sink_{self.config_name}_{rtp_destination}_{rtp_port}"
+        )
+        sink_description = stream_config.get(
+            'sink_description',
+            f"RTP from {rtp_destination}:{rtp_port} ({self.config_name})"
+        )
+
+        args = [
+            f"destination={rtp_destination}",
+            f"port={rtp_port}",
+            f"sink={sink_name}",
+            f"sink_properties=device.description='{sink_description}'"
+        ]
+
+        cmd = ['pactl', 'load-module', 'module-rtp-recv'] + args
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=15
+            )
+            if result.returncode == 0:
+                module_id = result.stdout.strip()
+                self.logger.info(
+                    f"Loaded RTP receiver '{sink_name}' for {rtp_destination}:{rtp_port} "
+                    f"(module ID: {module_id})"
+                )
+                return module_id
+            else:
+                self.logger.error(
+                    f"Failed to load RTP receiver for {rtp_destination}:{rtp_port}: {result.stderr}"
+                )
+                return None
+        except subprocess.SubprocessError as e:
+            self.logger.error(f"Error loading RTP receiver: {e}")
+            return None
+
+    def unload_module(self, module_id: str) -> bool:
+        """Unload a PipeWire module"""
+        try:
+            result = subprocess.run(
+                ['pactl', 'unload-module', module_id],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode == 0:
+                self.logger.info(f"Unloaded module {module_id}")
+                return True
+            else:
+                self.logger.error(f"Failed to unload module {module_id}: {result.stderr}")
+                return False
+        except subprocess.SubprocessError as e:
+            self.logger.error(f"Error unloading module {module_id}: {e}")
+            return False
+
+    def unload_all_modules(self) -> None:
+        """Unload all loaded modules"""
+        for module_id in self.module_ids.copy():
+            if self.unload_module(module_id):
+                self.module_ids.remove(module_id)
+
+    def run(self) -> int:
+        """Main run loop"""
+        self.logger.info(f"Starting PipeWire Network Client with configuration: {self.config_name}")
+
+        # Wait for PipeWire to be available
+        max_retries = 30
+        for retry in range(max_retries):
+            if self.check_pulseaudio():
+                break
+            if not self.running:
+                return 1
+            self.logger.info(f"Waiting for PipeWire... ({retry + 1}/{max_retries})")
+            time.sleep(1)
+        else:
+            self.logger.error("PipeWire not available after 30 seconds")
+            return 1
+
+        # Load configuration
+        config = self.load_config()
+        retry_count = 0
+        max_retries = config.get('max_retries', -1)
+        retry_interval = config.get('retry_interval', 10)
+
+        # Main loop
+        try:
+            while self.running:
+                # Try to load receivers for all configured streams
+                connected_any = False
+                for stream_config in config['streams']:
+                    rtp_destination = stream_config['rtp_destination']
+                    rtp_port = stream_config['rtp_port']
+
+                    # Check if we already have a receiver for this stream
+                    sink_name = stream_config.get(
+                        'sink_name',
+                        f"rtp_sink_{self.config_name}_{rtp_destination}_{rtp_port}"
+                    )
+                    already_connected = False
+
+                    # Check if sink already exists
+                    try:
+                        result = subprocess.run(
+                            ['pactl', 'list', 'sinks', 'short'],
+                            capture_output=True,
+                            text=True,
+                            timeout=5
+                        )
+                        if result.returncode == 0 and sink_name in result.stdout:
+                            already_connected = True
+                            connected_any = True
+                    except Exception:
+                        pass
+
+                    if not already_connected:
+                        module_id = self.load_rtp_recv(stream_config)
+                        if module_id:
+                            self.module_ids.append(module_id)
+                            connected_any = True
+                            retry_count = 0  # Reset retry count on successful connection
+
+                if connected_any:
+                    self.logger.info("Client started successfully, entering main loop")
+                    # Main monitoring loop
+                    while self.running:
+                        time.sleep(retry_interval)
+                        # Check if PipeWire is still running
+                        if not self.check_pulseaudio():
+                            self.logger.error("PipeWire is no longer accessible")
+                            break
+                        # TODO: Could add periodic health checks for RTP receiver sinks here
+                    break
+                else:
+                    # No receivers loaded
+                    retry_count += 1
+                    if max_retries > 0 and retry_count >= max_retries:
+                        self.logger.error(f"Max retries ({max_retries}) reached, giving up")
+                        return 1
+                    self.logger.warning(
+                        f"No streams available, retrying in {retry_interval}s... "
+                        f"(attempt {retry_count})"
+                    )
+                    time.sleep(retry_interval)
+        except KeyboardInterrupt:
+            self.logger.info("Received keyboard interrupt")
+        finally:
+            self.logger.info("Shutting down client")
+            self.unload_all_modules()
+
+        return 0
+
+
+def main():
+    # Get configuration name from command line or environment
+    config_name = "default"
+    if len(sys.argv) > 1:
+        config_name = sys.argv[1]
+    elif os.getenv("PIPEWIRE_CLIENT_CONFIG"):
+        config_name = os.getenv("PIPEWIRE_CLIENT_CONFIG")
+
+    if os.geteuid() == 0:
+        # Use system-wide config directory
+        config_dir = "/etc/pipewire-network"
+    else:
+        # Use user-specific config directory
+        config_dir = os.path.expanduser("~/.config/pipewire-network")
+        if os.getenv("XDG_CONFIG_HOME"):
+            config_dir = os.path.join(os.getenv("XDG_CONFIG_HOME"), "pipewire-network")
+
+    client = PipeWireClient(config_dir, config_name)
+    return client.run()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

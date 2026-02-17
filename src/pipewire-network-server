@@ -1,0 +1,218 @@
+#!/usr/bin/env python3
+"""
+PipeWire Network Server
+Manages PipeWire RTP sender module with configuration file support
+"""
+import json
+import logging
+import os
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Dict
+
+
+class PipeWireServer:
+    def __init__(self, config_dir: str = "/etc/pipewire-network"):
+        self.config_dir = Path(config_dir)
+        self.config_file = self.config_dir / "server.json"
+        self.module_id = None
+        self.running = True
+
+        # Create config directory if it doesn't exist
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.StreamHandler(sys.stdout),
+            ]
+        )
+        self.logger = logging.getLogger(__name__)
+
+        # Handle signals for graceful shutdown
+        signal.signal(signal.SIGTERM, self._signal_handler)
+        signal.signal(signal.SIGINT, self._signal_handler)
+
+    def _signal_handler(self, signum: int, frame) -> None:
+        """Handle termination signals"""
+        self.logger.info(f"Received signal {signum}, initiating graceful shutdown")
+        self.running = False
+
+    def load_config(self) -> Dict:
+        """Load configuration from JSON file"""
+        default_config = {
+            "rtp_destination": "224.0.0.56",
+            "rtp_port": 46998,
+            "source_address": "0.0.0.0",
+            "mtu": 1280,
+            "loop": False,
+            "ttl": 1,
+            "sample_spec": None,
+            "channel_map": None
+        }
+
+        try:
+            if self.config_file.exists():
+                with open(self.config_file, 'r') as f:
+                    config = json.load(f)
+                    # Merge with defaults
+                    default_config.update(config)
+                    self.logger.info(f"Loaded configuration from {self.config_file}")
+            else:
+                self.logger.warning(f"Config file {self.config_file} not found, using defaults")
+                # Create default config file
+                self.config_dir.mkdir(parents=True, exist_ok=True)
+                with open(self.config_file, 'w') as f:
+                    json.dump(default_config, f, indent=2)
+                self.logger.info(f"Created default config at {self.config_file}")
+        except (json.JSONDecodeError, IOError) as e:
+            self.logger.error(f"Error loading config: {e}, using defaults")
+
+        return default_config
+
+    def check_pulseaudio(self) -> bool:
+        """Check if PipeWire (via pipewire-pulse) is running and accessible"""
+        try:
+            result = subprocess.run(
+                ['pactl', 'info'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                self.logger.debug("PipeWire is accessible")
+                return True
+            else:
+                self.logger.error("PipeWire is not accessible")
+                return False
+        except subprocess.SubprocessError as e:
+            self.logger.error(f"Error checking PipeWire: {e}")
+            return False
+
+    def load_module(self, config: Dict) -> bool:
+        """Load the PipeWire RTP sender module"""
+        # Build module arguments
+        args = [
+            f"destination={config['rtp_destination']}",
+            f"port={config['rtp_port']}",
+            f"mtu={config['mtu']}",
+            f"loop={str(config['loop']).lower()}",
+            f"ttl={config['ttl']}"
+        ]
+
+        if config.get('source_address') and config['source_address'] != "0.0.0.0":
+            args.append(f"source={config['source_address']}")
+
+        if config.get('sample_spec'):
+            args.append(f"format={config['sample_spec']}")
+
+        if config.get('channel_map'):
+            args.append(f"channel_map={config['channel_map']}")
+
+        cmd = ['pactl', 'load-module', 'module-rtp-send'] + args
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode == 0:
+                self.module_id = result.stdout.strip()
+                self.logger.info(f"Loaded module with ID: {self.module_id}")
+                self.logger.info(
+                    f"RTP sender streaming to {config['rtp_destination']}:{config['rtp_port']}"
+                )
+                return True
+            else:
+                self.logger.error(f"Failed to load module: {result.stderr}")
+                return False
+        except subprocess.SubprocessError as e:
+            self.logger.error(f"Error loading module: {e}")
+            return False
+
+    def unload_module(self) -> bool:
+        """Unload the PipeWire RTP sender module"""
+        if not self.module_id:
+            return True
+
+        try:
+            result = subprocess.run(
+                ['pactl', 'unload-module', self.module_id],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode == 0:
+                self.logger.info(f"Unloaded module {self.module_id}")
+                self.module_id = None
+                return True
+            else:
+                self.logger.error(f"Failed to unload module: {result.stderr}")
+                return False
+        except subprocess.SubprocessError as e:
+            self.logger.error(f"Error unloading module: {e}")
+            return False
+
+    def run(self) -> int:
+        """Main run loop"""
+        self.logger.info("Starting PipeWire Network Server")
+
+        # Wait for PipeWire to be available
+        max_retries = 30
+        for retry in range(max_retries):
+            if self.check_pulseaudio():
+                break
+            if not self.running:
+                return 1
+            self.logger.info(f"Waiting for PipeWire... ({retry + 1}/{max_retries})")
+            time.sleep(1)
+        else:
+            self.logger.error("PipeWire not available after 30 seconds")
+            return 1
+
+        # Load configuration and start module
+        config = self.load_config()
+        if not self.load_module(config):
+            self.logger.error("Failed to load PipeWire module")
+            return 1
+
+        # Main loop - keep the service running
+        self.logger.info("Server started successfully, entering main loop")
+        try:
+            while self.running:
+                time.sleep(1)
+                # Periodically check if PipeWire is still running
+                if not self.check_pulseaudio():
+                    self.logger.error("PipeWire is no longer accessible")
+                    break
+        except KeyboardInterrupt:
+            self.logger.info("Received keyboard interrupt")
+        finally:
+            self.logger.info("Shutting down server")
+            self.unload_module()
+
+        return 0
+
+
+def main():
+    if os.geteuid() == 0:
+        # Use system-wide config directory
+        config_dir = "/etc/pipewire-network"
+    else:
+        # Use user-specific config directory
+        config_dir = os.path.expanduser("~/.config/pipewire-network")
+        if os.getenv("XDG_CONFIG_HOME"):
+            config_dir = os.path.join(os.getenv("XDG_CONFIG_HOME"), "pipewire-network")
+
+    server = PipeWireServer(config_dir)
+    return server.run()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

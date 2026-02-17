@@ -1,0 +1,15 @@
+#!/bin/bash
+set -e
+
+case "$1" in
+    remove|deconfigure)
+        # Stop and disable all services
+        systemctl --user stop 'pipewire-network-client@*.service' >/dev/null 2>&1 || true
+        systemctl --user stop pipewire-network-client.service >/dev/null 2>&1 || true
+        systemctl --user disable 'pipewire-network-client@*.service' >/dev/null 2>&1 || true
+        systemctl --user disable pipewire-network-client.service >/dev/null 2>&1 || true
+        ;;
+esac
+
+#DEBHELPER#
+exit 0

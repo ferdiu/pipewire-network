@@ -1,0 +1,8 @@
+pipewire-network-server (2.0.0-1) unstable; urgency=medium
+
+  * Initial release
+  * PipeWire network server with RTP transport
+  * Systemd user service integration
+  * Firewalld service definition
+
+ -- Federico Manzella <ferdiu.manzella@gmail.com>  Tue, 17 Feb 2026 11:40:02 +0100

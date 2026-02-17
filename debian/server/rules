@@ -1,0 +1,16 @@
+#!/usr/bin/make -f
+%:
+	dh $@ --with python3 --buildsystem=pybuild
+
+override_dh_auto_build:
+	# Nothing to build
+
+override_dh_auto_install:
+	# Install Python script
+	install -D -m 755 src/pipewire-network-server debian/pipewire-network-server/usr/bin/pipewire-network-server
+	# Install systemd user service
+	install -D -m 644 systemd/pipewire-network-server.service debian/pipewire-network-server/usr/lib/systemd/user/pipewire-network-server.service
+	# Install firewalld service definition
+	install -D -m 644 firewalld/pipewire-network.xml debian/pipewire-network-server/usr/lib/firewalld/services/pipewire-network.xml
+	# Install default configuration
+	install -D -m 644 config/server.json debian/pipewire-network-server/etc/pipewire-network/server.json

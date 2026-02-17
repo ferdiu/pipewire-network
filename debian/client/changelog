@@ -1,0 +1,8 @@
+pipewire-network-client (2.0.0-1) unstable; urgency=medium
+
+  * Initial release
+  * PipeWire network client with RTP transport
+  * Systemd user service integration
+  * Automatic reconnection and health monitoring
+
+ -- Federico Manzella <ferdiu.manzella@gmail.com>  Tue, 17 Feb 2026 11:40:02 +0100

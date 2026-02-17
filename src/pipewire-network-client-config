@@ -1,0 +1,353 @@
+#!/usr/bin/env python3
+"""
+PipeWire Network Client Configuration Manager
+Helps manage multiple client configurations and services
+"""
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+from typing import Dict
+
+
+class ClientConfigManager:
+    def __init__(self):
+        if os.geteuid() == 0:
+            # Use system-wide config directory
+            self.config_dir = Path("/etc/pipewire-network")
+        else:
+            # Use user-specific config directory
+            self.config_dir = Path(os.path.expanduser("~/.config/pipewire-network"))
+            if os.getenv("XDG_CONFIG_HOME"):
+                self.config_dir = Path(os.path.join(os.getenv("XDG_CONFIG_HOME"), "pipewire-network"))
+
+        self.config_file = self.config_dir / "client.json"
+
+    def load_configurations(self) -> Dict:
+        """Load all configurations from the client.json file"""
+        if not self.config_file.exists():
+            print(f"Configuration file not found: {self.config_file}")
+            return {}
+
+        try:
+            with open(self.config_file, 'r') as f:
+                configs = json.load(f)
+
+            # Handle old format
+            if 'streams' in configs:
+                print("Old configuration format detected. Please migrate to new format.")
+                return {"default": configs}
+
+            return configs
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"Error loading configuration: {e}")
+            return {}
+
+    def list_configurations(self) -> None:
+        """List all available configurations"""
+        configs = self.load_configurations()
+        if not configs:
+            print("No configurations found.")
+            return
+
+        print("Available configurations:")
+        print("=" * 50)
+        for name, config in configs.items():
+            print(f"\n📋 Configuration: {name}")
+            print(f"   Streams: {len(config.get('streams', []))}")
+            for i, stream in enumerate(config.get('streams', []), 1):
+                rtp_destination = stream.get('rtp_destination', 'unknown')
+                rtp_port = stream.get('rtp_port', 'unknown')
+                sink_name = stream.get('sink_name', 'unknown')
+                print(f"   └─ {i}. {rtp_destination}:{rtp_port} → {sink_name}")
+            retry_interval = config.get('retry_interval', 'unknown')
+            max_retries = config.get('max_retries', 'unknown')
+            print(f"   Settings: retry_interval={retry_interval}, max_retries={max_retries}")
+
+    def show_configuration(self, config_name: str) -> None:
+        """Show detailed configuration for a specific config"""
+        configs = self.load_configurations()
+        if config_name not in configs:
+            print(f"Configuration '{config_name}' not found.")
+            print(f"Available configurations: {list(configs.keys())}")
+            return
+
+        config = configs[config_name]
+        print(f"Configuration: {config_name}")
+        print("=" * 50)
+        print(json.dumps(config, indent=2))
+
+    def validate_configuration(self, config_name: str) -> bool:
+        """Validate a specific configuration"""
+        configs = self.load_configurations()
+        if config_name not in configs:
+            print(f"❌ Configuration '{config_name}' not found.")
+            return False
+
+        config = configs[config_name]
+        valid = True
+
+        print(f"Validating configuration: {config_name}")
+        print("-" * 40)
+
+        # Check required fields
+        if 'streams' not in config:
+            print("❌ Missing 'streams' field")
+            valid = False
+        elif not config['streams']:
+            print("❌ No streams configured")
+            valid = False
+        else:
+            print(f"✅ Found {len(config['streams'])} stream(s)")
+            # Validate each stream
+            for i, stream in enumerate(config['streams'], 1):
+                print(f"   Stream {i}:")
+                if 'rtp_destination' not in stream:
+                    print("   ❌ Missing 'rtp_destination' field")
+                    valid = False
+                else:
+                    print(f"   ✅ RTP destination: {stream['rtp_destination']}")
+
+                if 'rtp_port' not in stream:
+                    print("   ❌ Missing 'rtp_port' field")
+                    valid = False
+                else:
+                    try:
+                        port = int(stream['rtp_port'])
+                        if 1 <= port <= 65535:
+                            print(f"   ✅ RTP port: {port}")
+                        else:
+                            print(f"   ❌ Invalid rtp_port: {port} (must be 1-65535)")
+                            valid = False
+                    except ValueError:
+                        print(f"   ❌ Invalid rtp_port: {stream['rtp_port']} (must be numeric)")
+                        valid = False
+
+        # Check optional fields with reasonable defaults
+        retry_interval = config.get('retry_interval', 10)
+        if not isinstance(retry_interval, (int, float)) or retry_interval <= 0:
+            print(f"⚠️  Invalid retry_interval: {retry_interval} (using default: 10)")
+        else:
+            print(f"✅ Retry interval: {retry_interval}s")
+
+        max_retries = config.get('max_retries', -1)
+        if not isinstance(max_retries, int):
+            print(f"⚠️  Invalid max_retries: {max_retries} (using default: -1)")
+        else:
+            print(f"✅ Max retries: {max_retries}")
+
+        if valid:
+            print(f"\n✅ Configuration '{config_name}' is valid!")
+        else:
+            print(f"\n❌ Configuration '{config_name}' has errors!")
+
+        return valid
+
+    def list_services(self) -> None:
+        """List systemd user services for PipeWire network client"""
+        try:
+            # List all client services (both template instances and regular)
+            result = subprocess.run([
+                'systemctl', '--user', 'list-units', '--all',
+                'pipewire-network-client*'
+            ], capture_output=True, text=True)
+
+            if result.returncode == 0:
+                print("PipeWire Network Client Services:")
+                print("=" * 50)
+                print(result.stdout)
+            else:
+                print("No PipeWire network client services found or error occurred.")
+        except subprocess.SubprocessError as e:
+            print(f"Error listing services: {e}")
+
+    def service_status(self, config_name: str) -> None:
+        """Show status of a specific configuration service"""
+        service_name = f"pipewire-network-client@{config_name}.service"
+        try:
+            result = subprocess.run([
+                'systemctl', '--user', 'status', service_name
+            ], capture_output=True, text=True)
+
+            print(f"Service Status: {service_name}")
+            print("=" * 50)
+            print(result.stdout)
+            if result.stderr:
+                print("Errors:")
+                print(result.stderr)
+        except subprocess.SubprocessError as e:
+            print(f"Error getting service status: {e}")
+
+    def enable_service(self, config_name: str) -> None:
+        """Enable and start a service for a specific configuration"""
+        if not self.validate_configuration(config_name):
+            print("Cannot enable service with invalid configuration.")
+            return
+
+        service_name = f"pipewire-network-client@{config_name}.service"
+        try:
+            # Enable the service
+            print(f"Enabling {service_name}...")
+            result = subprocess.run([
+                'systemctl', '--user', 'enable', service_name
+            ], capture_output=True, text=True)
+
+            if result.returncode == 0:
+                print("✅ Service enabled")
+            else:
+                print(f"❌ Failed to enable service: {result.stderr}")
+                return
+
+            # Start the service
+            print(f"Starting {service_name}...")
+            result = subprocess.run([
+                'systemctl', '--user', 'start', service_name
+            ], capture_output=True, text=True)
+
+            if result.returncode == 0:
+                print("✅ Service started")
+                print(f"\nService '{config_name}' is now running!")
+                print(f"Check logs with: journalctl --user -u {service_name}")
+            else:
+                print(f"❌ Failed to start service: {result.stderr}")
+        except subprocess.SubprocessError as e:
+            print(f"Error managing service: {e}")
+
+    def disable_service(self, config_name: str) -> None:
+        """Stop and disable a service for a specific configuration"""
+        service_name = f"pipewire-network-client@{config_name}.service"
+        try:
+            # Stop the service
+            print(f"Stopping {service_name}...")
+            result = subprocess.run([
+                'systemctl', '--user', 'stop', service_name
+            ], capture_output=True, text=True)
+
+            if result.returncode == 0:
+                print("✅ Service stopped")
+            else:
+                print(f"⚠️  Service stop result: {result.stderr}")
+
+            # Disable the service
+            print(f"Disabling {service_name}...")
+            result = subprocess.run([
+                'systemctl', '--user', 'disable', service_name
+            ], capture_output=True, text=True)
+
+            if result.returncode == 0:
+                print("✅ Service disabled")
+                print(f"\nService '{config_name}' has been stopped and disabled.")
+            else:
+                print(f"⚠️  Service disable result: {result.stderr}")
+        except subprocess.SubprocessError as e:
+            print(f"Error managing service: {e}")
+
+    def create_sample_config(self) -> None:
+        """Create a sample configuration file"""
+        sample_config = {
+            "default": {
+                "streams": [
+                    {
+                        "rtp_destination": "224.0.0.56",
+                        "rtp_port": 46998,
+                        "sink_name": "network_sink_main",
+                        "sink_description": "Main Network Audio Sink"
+                    }
+                ],
+                "auto_connect": True,
+                "retry_interval": 10,
+                "max_retries": -1
+            },
+            "office": {
+                "streams": [
+                    {
+                        "rtp_destination": "224.0.0.57",
+                        "rtp_port": 46998,
+                        "sink_name": "office_speakers",
+                        "sink_description": "Office Speakers"
+                    }
+                ],
+                "auto_connect": True,
+                "retry_interval": 5,
+                "max_retries": 10
+            }
+        }
+
+        # Create config directory if it doesn't exist
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+
+        # Write sample config
+        with open(self.config_file, 'w') as f:
+            json.dump(sample_config, f, indent=2)
+
+        print(f"✅ Sample configuration created at: {self.config_file}")
+        print("\nEdit this file to add your own configurations.")
+
+
+def main():
+    manager = ClientConfigManager()
+
+    if len(sys.argv) < 2:
+        print("PipeWire Network Client Configuration Manager")
+        print("=" * 50)
+        print("Usage: pipewire-network-client-config <command> [args]")
+        print()
+        print("Commands:")
+        print("  list                   - List all configurations")
+        print("  show <config>          - Show specific configuration")
+        print("  validate <config>      - Validate configuration")
+        print("  services               - List all client services")
+        print("  status <config>        - Show service status")
+        print("  enable <config>        - Enable and start service")
+        print("  disable <config>       - Stop and disable service")
+        print("  create-sample          - Create sample configuration file")
+        print()
+        print("Examples:")
+        print("  pipewire-network-client-config list")
+        print("  pipewire-network-client-config enable office")
+        print("  pipewire-network-client-config status home")
+        return 1
+
+    command = sys.argv[1].lower()
+
+    if command == "list":
+        manager.list_configurations()
+    elif command == "show":
+        if len(sys.argv) < 3:
+            print("Usage: pipewire-network-client-config show <config_name>")
+            return 1
+        manager.show_configuration(sys.argv[2])
+    elif command == "validate":
+        if len(sys.argv) < 3:
+            print("Usage: pipewire-network-client-config validate <config_name>")
+            return 1
+        manager.validate_configuration(sys.argv[2])
+    elif command == "services":
+        manager.list_services()
+    elif command == "status":
+        if len(sys.argv) < 3:
+            print("Usage: pipewire-network-client-config status <config_name>")
+            return 1
+        manager.service_status(sys.argv[2])
+    elif command == "enable":
+        if len(sys.argv) < 3:
+            print("Usage: pipewire-network-client-config enable <config_name>")
+            return 1
+        manager.enable_service(sys.argv[2])
+    elif command == "disable":
+        if len(sys.argv) < 3:
+            print("Usage: pipewire-network-client-config disable <config_name>")
+            return 1
+        manager.disable_service(sys.argv[2])
+    elif command == "create-sample":
+        manager.create_sample_config()
+    else:
+        print(f"Unknown command: {command}")
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

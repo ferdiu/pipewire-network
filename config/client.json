@@ -1,0 +1,60 @@
+{
+  "default": {
+    "streams": [
+      {
+        "rtp_destination": "224.0.0.56",
+        "rtp_port": 46998,
+        "sink_name": "network_sink_main",
+        "sink_description": "Main Network Audio Sink"
+      }
+    ],
+    "auto_connect": true,
+    "retry_interval": 10,
+    "max_retries": -1
+  },
+  "office": {
+    "streams": [
+      {
+        "rtp_destination": "224.0.0.57",
+        "rtp_port": 46998,
+        "sink_name": "office_speakers",
+        "sink_description": "Office Speakers"
+      },
+      {
+        "rtp_destination": "224.0.0.58",
+        "rtp_port": 46998,
+        "sink_name": "office_speakers_backup",
+        "sink_description": "Office Speakers (Backup)"
+      }
+    ],
+    "auto_connect": true,
+    "retry_interval": 5,
+    "max_retries": 10
+  },
+  "home": {
+    "streams": [
+      {
+        "rtp_destination": "224.0.0.59",
+        "rtp_port": 46998,
+        "sink_name": "home_stereo",
+        "sink_description": "Home Stereo System"
+      }
+    ],
+    "auto_connect": true,
+    "retry_interval": 15,
+    "max_retries": -1
+  },
+  "studio": {
+    "streams": [
+      {
+        "rtp_destination": "224.0.0.60",
+        "rtp_port": 46998,
+        "sink_name": "studio_monitors",
+        "sink_description": "Studio Monitor Speakers"
+      }
+    ],
+    "auto_connect": true,
+    "retry_interval": 3,
+    "max_retries": 5
+  }
+}
