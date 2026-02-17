@@ -8,10 +8,13 @@ override_dh_auto_build:
 override_dh_auto_install:
 	# Install Python script
 	install -D -m 755 src/pipewire-network-client debian/pipewire-network-client/usr/bin/pipewire-network-client
+
 	# Install configuration manager script
 	install -D -m 755 src/pipewire-network-client-config debian/pipewire-network-client/usr/bin/pipewire-network-client-config
+
 	# Install systemd user services (both template and default)
 	install -D -m 644 systemd/pipewire-network-client@.service debian/pipewire-network-client/usr/lib/systemd/user/pipewire-network-client@.service
 	install -D -m 644 systemd/pipewire-network-client.service debian/pipewire-network-client/usr/lib/systemd/user/pipewire-network-client.service
+
 	# Install default configuration
 	install -D -m 644 config/client.json debian/pipewire-network-client/etc/pipewire-network/client.json

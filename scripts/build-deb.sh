@@ -12,6 +12,9 @@ VERSION="${VERSION:-2.0.0}"
 # Strip a leading "v" so "v2.0.0-rc1" becomes "2.0.0-rc1"
 VERSION="${VERSION#v}"
 
+# Strip -rc ... part
+VERSION="${VERSION%-*}"
+
 # Clean and create build directory
 rm -rf "${BUILD_DIR}"
 mkdir -p "${BUILD_DIR}"/{server,client}
