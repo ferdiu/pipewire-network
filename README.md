@@ -280,6 +280,17 @@ MIT License — see [LICENSE](LICENSE) for details.
 3. Make changes and test thoroughly
 4. Submit a pull request
 
+### If the release workflow gets updated
+
+Test the workflow locally by verifying that both debian and rpm package builds (it is ok to fail at the artifact step locally).
+
+```bash
+# Test build-deb step
+act --env GITHUB_REF=refs/tags/v2.0.0 -j build-deb
+# Test build-rpm step
+act --env GITHUB_REF=refs/tags/v2.0.0 -j build-rpm
+```
+
 ## Changelog
 
 ### Version 2.0.0
