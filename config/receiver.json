@@ -1,7 +1,5 @@
 {
-  "rtp_port": 9875,
-  "latency_msec": 20,
-  "sink": null,
-  "sample_spec": null,
-  "channel_map": null
+  "port": 9875,
+  "address": "0.0.0.0",
+  "target_latency": 5
 }

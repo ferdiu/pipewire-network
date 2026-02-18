@@ -1,0 +1,32 @@
+Source: pipewire-network-sender
+Section: sound
+Priority: optional
+Maintainer: Federico Manzella <ferdiu.manzella@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               gcc,
+               make,
+               pkg-config,
+               libpipewire-0.3-dev,
+               libspa-0.2-dev,
+               libjson-c-dev
+Standards-Version: 4.6.0
+Homepage: https://github.com/ferdiu/pipewire-network
+Vcs-Git: https://github.com/ferdiu/pipewire-network.git
+Vcs-Browser: https://github.com/ferdiu/pipewire-network
+
+Package: pipewire-network-sender
+Architecture: amd64
+Depends: ${misc:Depends}, ${shlibs:Depends},
+         pipewire,
+         pipewire-pulse,
+         systemd,
+         libjson-c5,
+         jq
+Description: PipeWire network audio sender
+ PipeWire Network Sender creates local PipeWire null-sinks and streams
+ their audio to remote receivers via RTP/UDP. It reads named configurations
+ from JSON, supports multiple simultaneous streams, and automatically
+ restarts streams on failure.
+ .
+ Includes pipewire-network-sender-config for managing named configurations
+ and controlling systemd template services.

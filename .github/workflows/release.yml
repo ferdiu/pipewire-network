@@ -15,17 +15,15 @@ name: Build & Release
 on:
   push:
     tags:
-      - "**"   # every tag, filtering is done in-job
+      - "**"
 
-# Prevent concurrent runs for the same tag.
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: true
 
-# ══════════════════════════════════════════════════════════════════════════════
 jobs:
 
-  # ── 0. Parse the tag and decide release vs pre-release ────────────────────
+  # ── 0. Parse the tag ───────────────────────────────────────────────────────
   prepare:
     name: "Prepare: parse tag"
     runs-on: ubuntu-latest
@@ -38,13 +36,8 @@ jobs:
       - name: Parse tag metadata
         id: parse
         run: |
-          # github.ref is "refs/tags/<tag>" — strip the prefix
           TAG="${GITHUB_REF#refs/tags/}"
-
-          # Strip a leading "v" to get the bare version string (v1.2.0 → 1.2.0)
           VERSION="${TAG#v}"
-
-          # Detect pre-release: tag ends with "-rc" followed by one or more digits
           if echo "${TAG}" | grep -qE '\-rc[0-9]+$'; then
             PRERELEASE="true"
             echo "🚧  Pre-release detected: ${TAG}"
@@ -52,12 +45,11 @@ jobs:
             PRERELEASE="false"
             echo "✅  Full release detected: ${TAG}"
           fi
-
           echo "tag=${TAG}"               >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}"       >> "$GITHUB_OUTPUT"
           echo "prerelease=${PRERELEASE}" >> "$GITHUB_OUTPUT"
 
-  # ── 1. Build DEB packages (receiver + sender) ───────────────────────────────
+  # ── 1. Build DEB packages ──────────────────────────────────────────────────
   build-deb:
     name: "Build DEB (x86_64)"
     runs-on: ubuntu-latest
@@ -72,22 +64,22 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             build-essential \
-            python3 \
-            python3-all \
-            python3-dev \
+            gcc \
+            make \
+            pkg-config \
+            libpipewire-0.3-dev \
+            libspa-0.2-dev \
+            libjson-c-dev \
             debhelper \
-            dh-python \
-            pybuild-plugin-pyproject \
             dpkg-dev \
             fakeroot
 
-      - name: Make build script executable
-        run: chmod +x scripts/build-deb.sh
-
-      - name: Build DEB packages (receiver + sender)
+      - name: Build DEB packages
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
-        run: ./scripts/build-deb.sh both
+        run: |
+          chmod +x scripts/build-deb.sh
+          ./scripts/build-deb.sh both
 
       - name: List built artefacts
         run: ls -lh dist/
@@ -100,13 +92,11 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-  # ── 2. Build RPM packages (receiver + sender) ───────────────────────────────
+  # ── 2. Build RPM packages ──────────────────────────────────────────────────
   build-rpm:
     name: "Build RPM (x86_64)"
     runs-on: ubuntu-latest
     needs: prepare
-
-    # Use an official Fedora container so rpmbuild & all macros are available.
     container:
       image: fedora:latest
 
@@ -114,8 +104,11 @@ jobs:
       - name: Install RPM build dependencies
         run: |
           dnf install -y \
-            python3 \
-            python3-devel \
+            gcc \
+            make \
+            pkgconfig \
+            pipewire-devel \
+            json-c-devel \
             systemd-rpm-macros \
             rpm-build \
             tar \
@@ -125,13 +118,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Make build script executable
-        run: chmod +x scripts/build-rpm.sh
-
-      - name: Build RPM packages (receiver + sender)
+      - name: Build RPM packages
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
-        run: ./scripts/build-rpm.sh both
+        run: |
+          chmod +x scripts/build-rpm.sh
+          ./scripts/build-rpm.sh both
 
       - name: List built artefacts
         run: ls -lh dist/
@@ -144,17 +136,13 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-  # ── 3. Create GitHub Release ───────────────────────────────────────────────
+  # ── 3. GitHub Release ──────────────────────────────────────────────────────
   release:
     name: "GitHub Release (${{ needs.prepare.outputs.tag }})"
     runs-on: ubuntu-latest
-    needs:
-      - prepare
-      - build-deb
-      - build-rpm
-
+    needs: [prepare, build-deb, build-rpm]
     permissions:
-      contents: write   # Required to create a release and upload assets
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -171,9 +159,6 @@ jobs:
         with:
           name: rpm-packages
           path: release-assets/
-
-      - name: List release assets
-        run: ls -lh release-assets/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -202,10 +187,11 @@ jobs:
             ```bash
             sudo dpkg -i pipewire-network-receiver_*.deb
             sudo dpkg -i pipewire-network-sender_*.deb
-            sudo apt-get install -f   # resolve any missing dependencies
+            sudo apt-get install -f
             ```
 
-            ### Post-install (both distros)
+            ### Post-install
+
             ```bash
             # Receiver
             systemctl --user enable --now pipewire-network-receiver.service

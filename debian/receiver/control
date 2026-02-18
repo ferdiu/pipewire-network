@@ -1,0 +1,32 @@
+Source: pipewire-network-receiver
+Section: sound
+Priority: optional
+Maintainer: Federico Manzella <ferdiu.manzella@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               gcc,
+               make,
+               pkg-config,
+               libpipewire-0.3-dev,
+               libspa-0.2-dev,
+               libjson-c-dev
+Standards-Version: 4.6.0
+Homepage: https://github.com/ferdiu/pipewire-network
+Vcs-Git: https://github.com/ferdiu/pipewire-network.git
+Vcs-Browser: https://github.com/ferdiu/pipewire-network
+
+Package: pipewire-network-receiver
+Architecture: amd64
+Depends: ${misc:Depends}, ${shlibs:Depends},
+         pipewire,
+         pipewire-pulse,
+         systemd,
+         libjson-c5
+Recommends: firewalld
+Description: PipeWire network audio receiver
+ PipeWire Network Receiver listens for incoming RTP audio streams and
+ automatically connects them to the system default output sink. It reads
+ its configuration from JSON and supports automatic sink switching when
+ the default output changes.
+ .
+ This package installs the receiver component that plays audio received
+ from remote PipeWire senders over RTP/UDP.

@@ -12,14 +12,14 @@ case "$1" in
         echo ""
         echo "2. Enable specific configurations:"
         echo "   pipewire-network-sender-config enable default"
-        echo "   pipewire-network-sender-config enable office"
+        echo "   pipewire-network-sender-config enable living-room"
         echo ""
         echo "3. Using systemd directly:"
-        echo "   systemctl --user enable pipewire-network-sender@office.service"
-        echo "   systemctl --user start pipewire-network-sender@office.service"
+        echo "   systemctl --user enable pipewire-network-sender@living-room.service"
+        echo "   systemctl --user start pipewire-network-sender@living-room.service"
         echo ""
         echo "4. Check service status:"
-        echo "   pipewire-network-sender-config status office"
+        echo "   pipewire-network-sender-config status"
         ;;
 esac
 

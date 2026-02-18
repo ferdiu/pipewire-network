@@ -1,0 +1,22 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	$(MAKE) pipewire-network-receiver
+
+override_dh_auto_install:
+	install -D -m 755 pipewire-network-receiver \
+		debian/pipewire-network-receiver/usr/bin/pipewire-network-receiver
+	install -D -m 644 systemd/pipewire-network-receiver.service \
+		debian/pipewire-network-receiver/usr/lib/systemd/user/pipewire-network-receiver.service
+	install -D -m 644 firewalld/pipewire-network.xml \
+		debian/pipewire-network-receiver/usr/lib/firewalld/services/pipewire-network.xml
+	install -D -m 644 config/receiver.json \
+		debian/pipewire-network-receiver/etc/pipewire-network/receiver.json
+
+override_dh_auto_clean:
+	$(MAKE) clean || true

@@ -1,7 +1,8 @@
 pipewire-network-receiver (2.0.0-1) unstable; urgency=medium
 
-  * Initial release
-  * PipeWire network receiver with RTP transport
+  * Rewritten in C using libpipewire-0.3 native API
+  * JSON configuration via libjson-c
+  * Auto-connects to default sink with live sink-switching support
   * Systemd user service integration
   * Firewalld service definition
 

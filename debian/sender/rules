@@ -1,0 +1,26 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	$(MAKE) pipewire-network-sender pipewire-network-rtp-sender
+
+override_dh_auto_install:
+	install -D -m 755 pipewire-network-sender \
+		debian/pipewire-network-sender/usr/bin/pipewire-network-sender
+	install -D -m 755 pipewire-network-rtp-sender \
+		debian/pipewire-network-sender/usr/bin/pipewire-network-rtp-sender
+	install -D -m 755 src/pipewire-network-sender-config \
+		debian/pipewire-network-sender/usr/bin/pipewire-network-sender-config
+	install -D -m 644 systemd/pipewire-network-sender@.service \
+		debian/pipewire-network-sender/usr/lib/systemd/user/pipewire-network-sender@.service
+	install -D -m 644 systemd/pipewire-network-sender.service \
+		debian/pipewire-network-sender/usr/lib/systemd/user/pipewire-network-sender.service
+	install -D -m 644 config/sender.json \
+		debian/pipewire-network-sender/etc/pipewire-network/sender.json
+
+override_dh_auto_clean:
+	$(MAKE) clean || true

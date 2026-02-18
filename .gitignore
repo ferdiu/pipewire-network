@@ -1,2 +1,6 @@
 build*/
 dist/
+pipewire-network-receiver
+pipewire-network-sender
+pipewire-network-rtp-sender
+*.o

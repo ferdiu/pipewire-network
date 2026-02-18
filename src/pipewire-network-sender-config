@@ -1,357 +1,187 @@
-#!/usr/bin/env python3
-"""
-PipeWire Network Sender Configuration Manager
-Helps manage multiple sender configurations and services
-"""
-import json
-import os
-import subprocess
-import sys
-from pathlib import Path
-from typing import Dict
+#!/bin/bash
+# pipewire-network-sender-config
+#
+# Configuration management tool for pipewire-network-sender.
+# Manages named configurations in ~/.config/pipewire-network/sender.json
+# and controls the corresponding systemd user services.
+#
+# Commands:
+#   list                        List available configurations
+#   show <name>                 Show a specific configuration
+#   validate <name>             Validate a configuration
+#   enable <name>               Enable and start a named config via systemd
+#   disable <name>              Stop and disable a named config
+#   status [name]               Show service status
+#   create-sample               Create a sample config file
 
+set -euo pipefail
 
-class SenderConfigManager:
-    def __init__(self):
-        if os.geteuid() == 0:
-            self.config_dir = Path("/etc/pipewire-network")
-        else:
-            self.config_dir = Path(os.path.expanduser("~/.config/pipewire-network"))
-            if os.getenv("XDG_CONFIG_HOME"):
-                self.config_dir = Path(os.path.join(os.getenv("XDG_CONFIG_HOME"), "pipewire-network"))
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/pipewire-network"
+CONFIG_FILE="$CONFIG_DIR/sender.json"
+SYSTEM_CONFIG="/etc/pipewire-network/sender.json"
 
-        self.config_file = self.config_dir / "sender.json"
+# ── helpers ──────────────────────────────────────────────────────────────────
 
-    def load_configurations(self) -> Dict:
-        """Load all configurations from the sender.json file"""
-        if not self.config_file.exists():
-            print(f"Configuration file not found: {self.config_file}")
-            return {}
+die() { echo "Error: $*" >&2; exit 1; }
 
-        try:
-            with open(self.config_file, 'r') as f:
-                configs = json.load(f)
+require_jq() {
+    command -v jq >/dev/null 2>&1 || die "'jq' is required but not installed. Install it with your package manager."
+}
 
-            # Handle old format
-            if 'streams' in configs:
-                print("Old configuration format detected. Please migrate to new format.")
-                return {"default": configs}
+effective_config() {
+    if [[ -f "$CONFIG_FILE" ]]; then echo "$CONFIG_FILE"
+    elif [[ -f "$SYSTEM_CONFIG" ]]; then echo "$SYSTEM_CONFIG"
+    else echo ""
+    fi
+}
 
-            return configs
-        except (json.JSONDecodeError, IOError) as e:
-            print(f"Error loading configuration: {e}")
-            return {}
+# ── commands ──────────────────────────────────────────────────────────────────
 
-    def list_configurations(self) -> None:
-        """List all available configurations"""
-        configs = self.load_configurations()
-        if not configs:
-            print("No configurations found.")
-            return
+cmd_list() {
+    require_jq
+    local cfg; cfg="$(effective_config)"
+    [[ -z "$cfg" ]] && { echo "No configuration file found."; echo "Run: $(basename "$0") create-sample"; exit 0; }
+    echo "Available configurations in $cfg:"
+    jq -r 'keys[]' "$cfg" | while read -r name; do
+        local n_streams
+        n_streams=$(jq -r --arg n "$name" '.[$n].streams | length' "$cfg")
+        local active=""
+        if systemctl --user is-active --quiet "pipewire-network-sender@${name}.service" 2>/dev/null; then
+            active=" [running]"
+        fi
+        echo "  - $name  ($n_streams stream(s))$active"
+    done
+}
 
-        print("Available configurations:")
-        print("=" * 50)
-        for name, config in configs.items():
-            print(f"\n📋 Configuration: {name}")
-            print(f"   Streams: {len(config.get('streams', []))}")
-            for i, stream in enumerate(config.get('streams', []), 1):
-                sink_name        = stream.get('sink_name', 'unknown')
-                rtp_destination  = stream.get('rtp_destination', 'unknown')
-                rtp_port         = stream.get('rtp_port', 'unknown')
-                latency_msec     = stream.get('latency_msec', 20)
-                print(f"   └─ {i}. sink='{sink_name}' → {rtp_destination}:{rtp_port} "
-                      f"(latency: {latency_msec}ms)")
-            retry_interval = config.get('retry_interval', 'unknown')
-            max_retries    = config.get('max_retries', 'unknown')
-            print(f"   Settings: retry_interval={retry_interval}, max_retries={max_retries}")
+cmd_show() {
+    require_jq
+    local name="${1:-}"
+    [[ -z "$name" ]] && die "Usage: $(basename "$0") show <name>"
+    local cfg; cfg="$(effective_config)"
+    [[ -z "$cfg" ]] && die "No configuration file found."
+    jq -r --arg n "$name" '.[$n] // error("not found")' "$cfg" || die "Config '$name' not found"
+}
 
-    def show_configuration(self, config_name: str) -> None:
-        """Show detailed configuration for a specific config"""
-        configs = self.load_configurations()
-        if config_name not in configs:
-            print(f"Configuration '{config_name}' not found.")
-            print(f"Available configurations: {list(configs.keys())}")
-            return
+cmd_validate() {
+    require_jq
+    local name="${1:-}"
+    [[ -z "$name" ]] && die "Usage: $(basename "$0") validate <name>"
+    local cfg; cfg="$(effective_config)"
+    [[ -z "$cfg" ]] && die "No configuration file found."
 
-        print(f"Configuration: {config_name}")
-        print("=" * 50)
-        print(json.dumps(configs[config_name], indent=2))
+    local obj; obj=$(jq -r --arg n "$name" '.[$n] // empty' "$cfg")
+    [[ -z "$obj" ]] && die "Config '$name' not found"
 
-    def validate_configuration(self, config_name: str) -> bool:
-        """Validate a specific configuration"""
-        configs = self.load_configurations()
-        if config_name not in configs:
-            print(f"❌ Configuration '{config_name}' not found.")
-            return False
+    local errors=0
+    local n_streams; n_streams=$(echo "$obj" | jq '.streams | length')
+    if [[ "$n_streams" -eq 0 ]]; then echo "  WARNING: no streams defined"; ((errors++)); fi
 
-        config = configs[config_name]
-        valid = True
+    echo "$obj" | jq -c '.streams[]' | while IFS= read -r s; do
+        local addr; addr=$(echo "$s" | jq -r '.address // empty')
+        local port; port=$(echo "$s" | jq -r '.port // empty')
+        [[ -z "$addr" ]] && { echo "  ERROR: stream missing 'address'"; ((errors++)); }
+        [[ -z "$port" ]] && { echo "  ERROR: stream missing 'port'"; ((errors++)); }
+        if [[ -n "$port" ]] && ! [[ "$port" =~ ^[0-9]+$ ]] || [[ "$port" -lt 1 || "$port" -gt 65535 ]]; then
+            echo "  ERROR: invalid port '$port'"; ((errors++))
+        fi
+    done
 
-        print(f"Validating configuration: {config_name}")
-        print("-" * 40)
+    if [[ "$errors" -eq 0 ]]; then echo "Config '$name': OK ($n_streams stream(s))"; fi
+    return "$errors"
+}
 
-        if 'streams' not in config:
-            print("❌ Missing 'streams' field")
-            valid = False
-        elif not config['streams']:
-            print("❌ No streams configured")
-            valid = False
-        else:
-            print(f"✅ Found {len(config['streams'])} stream(s)")
-            for i, stream in enumerate(config['streams'], 1):
-                print(f"   Stream {i}:")
+cmd_enable() {
+    local name="${1:-}"
+    [[ -z "$name" ]] && die "Usage: $(basename "$0") enable <name>"
+    echo "Enabling pipewire-network-sender@${name}.service..."
+    systemctl --user enable --now "pipewire-network-sender@${name}.service"
+    echo "Done. Status:"
+    systemctl --user status "pipewire-network-sender@${name}.service" --no-pager || true
+}
 
-                if 'rtp_destination' not in stream:
-                    print("   ❌ Missing 'rtp_destination' field")
-                    valid = False
-                else:
-                    print(f"   ✅ RTP destination: {stream['rtp_destination']}")
+cmd_disable() {
+    local name="${1:-}"
+    [[ -z "$name" ]] && die "Usage: $(basename "$0") disable <name>"
+    echo "Disabling pipewire-network-sender@${name}.service..."
+    systemctl --user disable --now "pipewire-network-sender@${name}.service" || true
+    echo "Done."
+}
 
-                if 'rtp_port' not in stream:
-                    print("   ❌ Missing 'rtp_port' field")
-                    valid = False
-                else:
-                    try:
-                        port = int(stream['rtp_port'])
-                        if 1 <= port <= 65535:
-                            print(f"   ✅ RTP port: {port}")
-                        else:
-                            print(f"   ❌ Invalid rtp_port: {port} (must be 1-65535)")
-                            valid = False
-                    except ValueError:
-                        print(f"   ❌ Invalid rtp_port: {stream['rtp_port']} (must be numeric)")
-                        valid = False
+cmd_status() {
+    local name="${1:-}"
+    if [[ -n "$name" ]]; then
+        systemctl --user status "pipewire-network-sender@${name}.service" --no-pager || true
+    else
+        echo "All pipewire-network-sender services:"
+        systemctl --user list-units 'pipewire-network-sender*' --no-pager || true
+    fi
+}
 
-                if 'sink_name' not in stream:
-                    print("   ⚠️  No 'sink_name' specified, a default will be used")
-                else:
-                    print(f"   ✅ Sink name: {stream['sink_name']}")
+cmd_create_sample() {
+    if [[ -f "$CONFIG_FILE" ]]; then
+        echo "Config file already exists: $CONFIG_FILE"
+        echo "Edit it directly or remove it first."
+        exit 0
+    fi
+    mkdir -p "$CONFIG_DIR"
+    cat > "$CONFIG_FILE" << 'JSON'
+{
+  "default": {
+    "streams": [
+      {
+        "address": "192.168.1.2",
+        "port": 9875
+      }
+    ],
+    "auto_connect": true,
+    "retry_interval": 10,
+    "max_retries": -1
+  },
+  "living-room": {
+    "streams": [
+      {
+        "address": "192.168.1.3",
+        "port": 9875
+      }
+    ],
+    "auto_connect": true,
+    "retry_interval": 10,
+    "max_retries": 3
+  }
+}
+JSON
+    echo "Sample configuration created: $CONFIG_FILE"
+    echo "Edit it to match your network setup, then run:"
+    echo "  $(basename "$0") enable default"
+}
 
-                latency_msec = stream.get('latency_msec', 20)
-                if not isinstance(latency_msec, (int, float)) or latency_msec <= 0:
-                    print(f"   ⚠️  Invalid latency_msec: {latency_msec} (using default: 20)")
-                else:
-                    print(f"   ✅ Latency: {latency_msec}ms")
+# ── dispatch ──────────────────────────────────────────────────────────────────
 
-        retry_interval = config.get('retry_interval', 10)
-        if not isinstance(retry_interval, (int, float)) or retry_interval <= 0:
-            print(f"⚠️  Invalid retry_interval: {retry_interval} (using default: 10)")
-        else:
-            print(f"✅ Retry interval: {retry_interval}s")
+usage() {
+    cat << EOF
+Usage: $(basename "$0") <command> [args]
 
-        max_retries = config.get('max_retries', -1)
-        if not isinstance(max_retries, int):
-            print(f"⚠️  Invalid max_retries: {max_retries} (using default: -1)")
-        else:
-            print(f"✅ Max retries: {max_retries}")
+Commands:
+  list                List all available named configurations
+  show <name>         Print a specific configuration as JSON
+  validate <name>     Validate a configuration for common errors
+  enable <name>       Enable and start the systemd service for <name>
+  disable <name>      Stop and disable the systemd service for <name>
+  status [name]       Show status of running sender service(s)
+  create-sample       Create a sample sender.json configuration file
 
-        if valid:
-            print(f"\n✅ Configuration '{config_name}' is valid!")
-        else:
-            print(f"\n❌ Configuration '{config_name}' has errors!")
+Config file: $CONFIG_FILE
+EOF
+}
 
-        return valid
-
-    def list_services(self) -> None:
-        """List systemd user services for PipeWire network sender"""
-        try:
-            result = subprocess.run([
-                'systemctl', '--user', 'list-units', '--all',
-                'pipewire-network-sender*'
-            ], capture_output=True, text=True)
-
-            if result.returncode == 0:
-                print("PipeWire Network Sender Services:")
-                print("=" * 50)
-                print(result.stdout)
-            else:
-                print("No PipeWire network sender services found or error occurred.")
-        except subprocess.SubprocessError as e:
-            print(f"Error listing services: {e}")
-
-    def service_status(self, config_name: str) -> None:
-        """Show status of a specific configuration service"""
-        service_name = f"pipewire-network-sender@{config_name}.service"
-        try:
-            result = subprocess.run([
-                'systemctl', '--user', 'status', service_name
-            ], capture_output=True, text=True)
-
-            print(f"Service Status: {service_name}")
-            print("=" * 50)
-            print(result.stdout)
-            if result.stderr:
-                print("Errors:")
-                print(result.stderr)
-        except subprocess.SubprocessError as e:
-            print(f"Error getting service status: {e}")
-
-    def enable_service(self, config_name: str) -> None:
-        """Enable and start a service for a specific configuration"""
-        if not self.validate_configuration(config_name):
-            print("Cannot enable service with invalid configuration.")
-            return
-
-        service_name = f"pipewire-network-sender@{config_name}.service"
-        try:
-            print(f"Enabling {service_name}...")
-            result = subprocess.run([
-                'systemctl', '--user', 'enable', service_name
-            ], capture_output=True, text=True)
-
-            if result.returncode == 0:
-                print("✅ Service enabled")
-            else:
-                print(f"❌ Failed to enable service: {result.stderr}")
-                return
-
-            print(f"Starting {service_name}...")
-            result = subprocess.run([
-                'systemctl', '--user', 'start', service_name
-            ], capture_output=True, text=True)
-
-            if result.returncode == 0:
-                print("✅ Service started")
-                print(f"\nService '{config_name}' is now running!")
-                print(f"Check logs with: journalctl --user -u {service_name}")
-            else:
-                print(f"❌ Failed to start service: {result.stderr}")
-        except subprocess.SubprocessError as e:
-            print(f"Error managing service: {e}")
-
-    def disable_service(self, config_name: str) -> None:
-        """Stop and disable a service for a specific configuration"""
-        service_name = f"pipewire-network-sender@{config_name}.service"
-        try:
-            print(f"Stopping {service_name}...")
-            result = subprocess.run([
-                'systemctl', '--user', 'stop', service_name
-            ], capture_output=True, text=True)
-
-            if result.returncode == 0:
-                print("✅ Service stopped")
-            else:
-                print(f"⚠️  Service stop result: {result.stderr}")
-
-            print(f"Disabling {service_name}...")
-            result = subprocess.run([
-                'systemctl', '--user', 'disable', service_name
-            ], capture_output=True, text=True)
-
-            if result.returncode == 0:
-                print("✅ Service disabled")
-                print(f"\nService '{config_name}' has been stopped and disabled.")
-            else:
-                print(f"⚠️  Service disable result: {result.stderr}")
-        except subprocess.SubprocessError as e:
-            print(f"Error managing service: {e}")
-
-    def create_sample_config(self) -> None:
-        """Create a sample configuration file"""
-        sample_config = {
-            "default": {
-                "streams": [
-                    {
-                        "rtp_destination": "receiver-hostname",
-                        "rtp_port": 9875,
-                        "latency_msec": 20,
-                        "sink_name": "rtp_sink_main",
-                        "sink_description": "RTP Network Audio Sender"
-                    }
-                ],
-                "auto_connect": True,
-                "retry_interval": 10,
-                "max_retries": -1
-            },
-            "office": {
-                "streams": [
-                    {
-                        "rtp_destination": "office-speakers",
-                        "rtp_port": 9875,
-                        "latency_msec": 20,
-                        "sink_name": "rtp_sink_office",
-                        "sink_description": "Office RTP Audio Sender"
-                    }
-                ],
-                "auto_connect": True,
-                "retry_interval": 5,
-                "max_retries": 10
-            }
-        }
-
-        self.config_dir.mkdir(parents=True, exist_ok=True)
-
-        with open(self.config_file, 'w') as f:
-            json.dump(sample_config, f, indent=2)
-
-        print(f"✅ Sample configuration created at: {self.config_file}")
-        print("\nEdit this file to configure your streams.")
-        print("Set 'rtp_destination' to the hostname or IP of the receiver machine.")
-
-
-def main():
-    manager = SenderConfigManager()
-
-    if len(sys.argv) < 2:
-        print("PipeWire Network Sender Configuration Manager")
-        print("=" * 50)
-        print("Usage: pipewire-network-sender-config <command> [args]")
-        print()
-        print("Commands:")
-        print("  list                   - List all configurations")
-        print("  show <config>          - Show specific configuration")
-        print("  validate <config>      - Validate configuration")
-        print("  services               - List all sender services")
-        print("  status <config>        - Show service status")
-        print("  enable <config>        - Enable and start service")
-        print("  disable <config>       - Stop and disable service")
-        print("  create-sample          - Create sample configuration file")
-        print()
-        print("Examples:")
-        print("  pipewire-network-sender-config list")
-        print("  pipewire-network-sender-config enable office")
-        print("  pipewire-network-sender-config status default")
-        return 1
-
-    command = sys.argv[1].lower()
-
-    if command == "list":
-        manager.list_configurations()
-    elif command == "show":
-        if len(sys.argv) < 3:
-            print("Usage: pipewire-network-sender-config show <config_name>")
-            return 1
-        manager.show_configuration(sys.argv[2])
-    elif command == "validate":
-        if len(sys.argv) < 3:
-            print("Usage: pipewire-network-sender-config validate <config_name>")
-            return 1
-        manager.validate_configuration(sys.argv[2])
-    elif command == "services":
-        manager.list_services()
-    elif command == "status":
-        if len(sys.argv) < 3:
-            print("Usage: pipewire-network-sender-config status <config_name>")
-            return 1
-        manager.service_status(sys.argv[2])
-    elif command == "enable":
-        if len(sys.argv) < 3:
-            print("Usage: pipewire-network-sender-config enable <config_name>")
-            return 1
-        manager.enable_service(sys.argv[2])
-    elif command == "disable":
-        if len(sys.argv) < 3:
-            print("Usage: pipewire-network-sender-config disable <config_name>")
-            return 1
-        manager.disable_service(sys.argv[2])
-    elif command == "create-sample":
-        manager.create_sample_config()
-    else:
-        print(f"Unknown command: {command}")
-        return 1
-
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+case "${1:-}" in
+    list)          cmd_list ;;
+    show)          cmd_show "${2:-}" ;;
+    validate)      cmd_validate "${2:-}" ;;
+    enable)        cmd_enable "${2:-}" ;;
+    disable)       cmd_disable "${2:-}" ;;
+    status)        cmd_status "${2:-}" ;;
+    create-sample) cmd_create_sample ;;
+    ""|--help|-h)  usage ;;
+    *)             echo "Unknown command: $1" >&2; usage >&2; exit 1 ;;
+esac

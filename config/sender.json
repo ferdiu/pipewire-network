@@ -1,65 +1,18 @@
 {
   "default": {
     "streams": [
-      {
-        "rtp_destination": "192.168.1.100",
-        "rtp_port": 9875,
-        "latency_msec": 20,
-        "sink_name": "rtp_sink",
-        "sink_description": "RTP Network Audio Sender"
-      }
+      { "address": "192.168.1.2", "port": 9875 }
     ],
     "auto_connect": true,
     "retry_interval": 10,
     "max_retries": -1
   },
-  "office": {
+  "living-room": {
     "streams": [
-      {
-        "rtp_destination": "office-speakers",
-        "rtp_port": 9875,
-        "latency_msec": 20,
-        "sink_name": "rtp_sink_office",
-        "sink_description": "Office RTP Audio Sender"
-      }
-    ],
-    "auto_connect": true,
-    "retry_interval": 5,
-    "max_retries": 10
-  },
-  "home": {
-    "streams": [
-      {
-        "rtp_destination": "home-stereo",
-        "rtp_port": 9875,
-        "latency_msec": 20,
-        "sink_name": "rtp_sink_home",
-        "sink_description": "Home Stereo RTP Audio Sender"
-      }
-    ],
-    "auto_connect": true,
-    "retry_interval": 15,
-    "max_retries": -1
-  },
-  "multi": {
-    "streams": [
-      {
-        "rtp_destination": "living-room",
-        "rtp_port": 9875,
-        "latency_msec": 20,
-        "sink_name": "rtp_sink_living_room",
-        "sink_description": "Living Room RTP Audio Sender"
-      },
-      {
-        "rtp_destination": "bedroom",
-        "rtp_port": 46999,
-        "latency_msec": 20,
-        "sink_name": "rtp_sink_bedroom",
-        "sink_description": "Bedroom RTP Audio Sender"
-      }
+      { "address": "192.168.1.3", "port": 9875 }
     ],
     "auto_connect": true,
     "retry_interval": 10,
-    "max_retries": -1
+    "max_retries": 3
   }
 }

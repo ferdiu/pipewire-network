@@ -1,341 +1,277 @@
 # PipeWire Network Audio Streaming
 
-A reliable solution for streaming audio over the network using PipeWire's RTP transport. This project provides both receiver and sender components with proper configuration management, health monitoring, and packaging for Fedora (RPM) and Debian/Ubuntu (DEB).
+A reliable solution for streaming audio over the network using PipeWire's RTP transport. This project provides both receiver and sender components with proper configuration management, automatic reconnection, and packaging for Fedora (RPM) and Debian/Ubuntu (DEB).
 
 > This is a full-reimplementation of my old project [pulseaudio-network](https://github.com/ferdiu/pulseaudio-network) which used TCP sinks which could not guarantee the same low-latency as RTP sinks do.
 
 ## Features
 
 ### Receiver Features
-- **RTP Sender**: Streams audio via RTP (unicast or multicast)
-- **Configuration Management**: JSON-based configuration with automatic defaults
-- **Health Monitoring**: Automatic PipeWire connection monitoring
+- **Auto-Connect**: Automatically connects incoming RTP stream to the default output sink
+- **Live Sink Switching**: Follows the default sink when it changes — old links torn down, new ones created
+- **JSON Configuration**: Reads `~/.config/pipewire-network/receiver.json` with system-wide fallback
 - **Firewall Integration**: Includes firewalld service definition
-- **Graceful Shutdown**: Proper module cleanup on service stop
+- **Graceful Shutdown**: Cleans up PipeWire links on SIGTERM/SIGINT
 
 ### Sender Features
-- **Multi-Receiver Support**: Receive from multiple RTP streams simultaneously
-- **Auto-Reconnection**: Automatic reconnection with configurable retry logic
-- **Health Monitoring**: Connection and PipeWire health checks
-- **Custom Sink Names**: Configurable sink names and descriptions
-- **Graceful Degradation**: Continues operating even if some streams are unavailable
+- **Named Configurations**: Multiple named setups in a single JSON file
+- **Multi-Stream**: Each named config can send to several receivers simultaneously
+- **Auto-Reconnection**: Supervisor restarts failed streams with configurable retry logic
+- **Unique Sink Names**: Each stream gets a unique null-sink so they appear separately in the mixer
+- **Config Manager**: `pipewire-network-sender-config` tool for listing, validating, and enabling configs
 
 ## Project Structure
 
 ```
 pipewire-network/
 ├── src/
-│   ├── pipewire-network-receiver          # Python receiver script
-│   └── pipewire-network-sender          # Python sender script
+│   ├── pipewire-network-receiver.c        # RTP receiver (C, libpipewire)
+│   ├── pipewire-network-sender.c          # Supervisor process (C, libjson-c)
+│   ├── rtp-sender.c                       # Low-level RTP sender (C, libpipewire)
+│   └── pipewire-network-sender-config     # Config management shell script
 ├── systemd/
 │   ├── pipewire-network-receiver.service  # Systemd user service for receiver
-│   └── pipewire-network-sender.service  # Systemd user service for sender
+│   ├── pipewire-network-sender.service    # Systemd user service for sender (default config)
+│   └── pipewire-network-sender@.service   # Systemd template for named configs
 ├── config/
 │   ├── receiver.json                      # Default receiver configuration
-│   └── sender.json                      # Default sender configuration
+│   └── sender.json                        # Default sender configuration
 ├── firewalld/
-│   └── pipewire-network.xml             # Firewalld service definition
+│   └── pipewire-network.xml              # Firewalld service definition
 ├── rpm/
-│   ├── pipewire-network-receiver.spec     # RPM spec file for receiver
-│   └── pipewire-network-sender.spec     # RPM spec file for sender
+│   ├── pipewire-network-receiver.spec
+│   └── pipewire-network-sender.spec
 ├── debian/
-│   ├── receiver/                          # Debian packaging files for receiver
-│   │   ├── control
-│   │   ├── rules
-│   │   ├── postinst
-│   │   ├── prerm
-│   │   ├── postrm
-│   │   ├── changelog
-│   │   ├── compat
-│   │   └── copyright
-│   └── sender/                          # Debian packaging files for sender
-│       ├── control
-│       ├── rules
-│       ├── postinst
-│       ├── prerm
-│       ├── changelog
-│       ├── compat
-│       └── copyright
+│   ├── receiver/                          # Debian packaging for receiver
+│   └── sender/                            # Debian packaging for sender
 ├── scripts/
-│   ├── build-rpm.sh                     # Build RPM packages
-│   ├── build-deb.sh                     # Build DEB packages
-│   └── install.sh                       # Install from source
+│   ├── build-rpm.sh
+│   ├── build-deb.sh
+│   └── install.sh
+├── Makefile
 ├── README.md
 └── LICENSE
 ```
+
+## Building
+
+### Prerequisites
+
+```bash
+# Fedora/RHEL/CentOS
+sudo dnf install gcc make pkgconfig pipewire-devel json-c-devel
+
+# Debian/Ubuntu
+sudo apt install gcc make pkg-config libpipewire-0.3-dev libspa-0.2-dev libjson-c-dev
+```
+
+### Build
+
+```bash
+make          # builds all three binaries
+make clean    # remove built binaries
+```
+
+This produces:
+- `pipewire-network-receiver` — the receiver daemon
+- `pipewire-network-sender` — the supervisor process
+- `pipewire-network-rtp-sender` — the low-level per-stream RTP sender
 
 ## Installation
 
 ### From Packages
 
 #### Fedora/RHEL/CentOS (RPM)
+
 ```bash
-# Build packages
 ./scripts/build-rpm.sh
-
-# Install receiver
-sudo dnf install build/receiver/rpmbuild/RPMS/noarch/pipewire-network-receiver-*.rpm
-
-# Install sender
-sudo dnf install build/sender/rpmbuild/RPMS/noarch/pipewire-network-sender-*.rpm
+sudo dnf install dist/pipewire-network-receiver-*.rpm
+sudo dnf install dist/pipewire-network-sender-*.rpm
 ```
 
 #### Debian/Ubuntu (DEB)
+
 ```bash
-# Build packages
 ./scripts/build-deb.sh
-
-# Install receiver
-sudo dpkg -i build-deb/receiver/pipewire-network-receiver_*.deb
-sudo apt-get install -f  # Fix dependencies if needed
-
-# Install sender
-sudo dpkg -i build-deb/sender/pipewire-network-sender_*.deb
-sudo apt-get install -f  # Fix dependencies if needed
+sudo dpkg -i dist/pipewire-network-receiver_*.deb
+sudo dpkg -i dist/pipewire-network-sender_*.deb
+sudo apt-get install -f
 ```
 
 ### From Source
+
 ```bash
-# Install both receiver and sender
-./scripts/install.sh
-
-# Install only receiver
+./scripts/install.sh          # both
 ./scripts/install.sh receiver
-
-# Install only sender
 ./scripts/install.sh sender
 ```
 
 ## Configuration
 
-### Receiver Configuration
-
-Edit `~/.config/pipewire-network/receiver.json`:
+### Receiver (`~/.config/pipewire-network/receiver.json`)
 
 ```json
 {
-  "rtp_port": 9875,
-  "listen_address": "0.0.0.0",
-  "mtu": 1280,
-  "sample_spec": null,
-  "channel_map": null
+  "port": 9875,
+  "address": "0.0.0.0",
+  "target_latency": 5
 }
 ```
 
-**Configuration Options:**
-- `rtp_port`: UDP port for the RTP stream (default: `9875`)
-- `listen_address`: Source interface address to bind to (default: `"0.0.0.0"`)
-- `mtu`: Maximum Transmission Unit for RTP packets (default: `1280`)
-- `sample_spec`: Custom sample specification (e.g., `"s16le 44100 2"`)
-- `channel_map`: Custom channel map (e.g., `"front-left,front-right"`)
+| Field | Default | Description |
+|-------|---------|-------------|
+| `port` | `9875` | UDP port to listen on |
+| `address` | `"0.0.0.0"` | Interface address to bind |
+| `target_latency` | `5` | Buffer latency in milliseconds |
 
-### Sender Configuration
-
-Edit `~/.config/pipewire-network/sender.json` with named configurations:
+### Sender (`~/.config/pipewire-network/sender.json`)
 
 ```json
 {
   "default": {
     "streams": [
-      {
-        "rtp_destination": "224.0.0.56",
-        "rtp_port": 9875,
-        "sink_name": "network_sink_main",
-        "sink_description": "Main Network Audio Sink"
-      }
+      { "address": "192.168.1.2", "port": 9875 }
     ],
     "auto_connect": true,
     "retry_interval": 10,
     "max_retries": -1
+  },
+  "living-room": {
+    "streams": [
+      { "address": "192.168.1.3", "port": 9875 }
+    ],
+    "auto_connect": true,
+    "retry_interval": 10,
+    "max_retries": 3
   }
 }
 ```
 
-**Configuration Options:**
-- **Named Configurations**: Each top-level key is a configuration name
-- **Multiple Instances**: Run different configs simultaneously with systemd templates
-- **Backwards Compatibility**: Old format is automatically migrated
-- **Unique Sink Names**: Each config gets unique sink names to avoid conflicts
+Each top-level key is a named configuration. `max_retries: -1` means unlimited restarts.
 
 **Stream fields:**
-- `rtp_destination`: Multicast group or unicast address the receiver is sending to
-- `rtp_port`: UDP port matching the receiver
-- `sink_name`: Local sink name to create
-- `sink_description`: Human-readable description
+- `address`: Destination IP (unicast or multicast) — must match the receiver's network address
+- `port`: UDP port — must match the receiver's configured port
 
 ## Usage
 
 ### Receiver Setup
 
-1. **Install and configure firewall** (if using firewalld):
-   ```bash
-   sudo firewall-cmd --permanent --add-service=pipewire-network
-   sudo firewall-cmd --reload
-   ```
-
-2. **Enable and start the service**:
-   ```bash
-   systemctl --user enable pipewire-network-receiver.service
-   systemctl --user start pipewire-network-receiver.service
-   ```
-
-3. **Check status**:
-   ```bash
-   systemctl --user status pipewire-network-receiver.service
-   journalctl --user -u pipewire-network-receiver.service
-   ```
-
-### Sender Setup
-
-1. **Create and configure multiple setups**:
-   ```bash
-   # Create sample configuration with multiple named configs
-   pipewire-network-sender-config create-sample
-
-   # List available configurations
-   pipewire-network-sender-config list
-
-   # Validate a specific configuration
-   pipewire-network-sender-config validate office
-   ```
-
-2. **Enable specific configurations**:
-   ```bash
-   # Enable default configuration
-   pipewire-network-sender-config enable default
-
-   # Enable office configuration
-   pipewire-network-sender-config enable office
-   ```
-
-3. **Alternative: Use systemd directly**:
-   ```bash
-   # Enable template service for specific config
-   systemctl --user enable pipewire-network-sender@office.service
-   systemctl --user start pipewire-network-sender@office.service
-   ```
-
-4. **Verify sinks are available**:
-   ```bash
-   pactl list sinks short
-   ```
-
-### Using Network Sinks
-
-Once the sender is connected, network sinks will appear in your audio settings:
-- **GNOME**: Settings → Sound → Output Device
-- **KDE**: System Settings → Audio → Playback Devices
-- **Command line**: `pactl set-default-sink network_sink_main`
-
-## Troubleshooting
-
-### Common Issues
-
-#### Receiver Issues
-
-**Service fails to start:**
 ```bash
-# Check if PipeWire is running
-pactl info
+# Open firewall port (if using firewalld)
+sudo firewall-cmd --permanent --add-service=pipewire-network
+sudo firewall-cmd --reload
 
-# Check for port conflicts
-sudo netstat -ulnp | grep :9875
+# Enable and start
+systemctl --user enable --now pipewire-network-receiver.service
 
-# View detailed logs
+# Check logs
 journalctl --user -u pipewire-network-receiver.service -f
 ```
 
-#### Sender Issues
+### Sender Setup
 
-**Sinks not appearing:**
 ```bash
-# Check module status
-pactl list modules short | grep rtp
+# Create sample configuration
+pipewire-network-sender-config create-sample
+
+# List available configs
+pipewire-network-sender-config list
+
+# Validate a config before enabling
+pipewire-network-sender-config validate living-room
+
+# Enable and start a named config
+pipewire-network-sender-config enable living-room
+
+# Or use systemd directly
+systemctl --user enable --now pipewire-network-sender@living-room.service
+
+# Check what's running
+pipewire-network-sender-config status
 ```
 
-#### High Latency
+Once running, network sinks appear in your audio settings. Each stream gets a sink named `<config-name>-<index>`:
 
-If you have high latency problem, you probably need to set correctly your PipeWire configuration to use a lower quantum. Add a new file if it does not exist at `~/.config/pipewire/pipewire.conf.d/lowlatency.conf` with this content:
+```bash
+pactl list sinks short
+# → living-room-0   PipeWire  ...
+pactl set-default-sink living-room-0
+```
+
+## Architecture
+
+```
+Receiver side                      Sender side
+─────────────                      ───────────
+pipewire-network-receiver          pipewire-network-sender <config-name>
+  │                                  │  (supervisor: reads JSON, forks children)
+  │  libpipewire-module-rtp-source   │
+  │  ← UDP RTP stream ←              ├─ pipewire-network-rtp-sender <name>-0 <addr> <port>
+  │                                  │    (null-sink + rtp-sink module)
+  │  auto-links to default sink      │
+  │  follows sink changes            └─ pipewire-network-rtp-sender <name>-1 <addr> <port>
+  │                                       (null-sink + rtp-sink module)
+  ↓
+[speakers / headphones]
+```
+
+## Troubleshooting
+
+### Receiver: audio not playing
+
+```bash
+# Is PipeWire running?
+pactl info
+
+# Is the port open?
+ss -ulnp | grep 9875
+
+# Check receiver logs
+journalctl --user -u pipewire-network-receiver.service -f
+```
+
+### Sender: sinks not appearing
+
+```bash
+# Is the sender running?
+pipewire-network-sender-config status
+
+# Check sender logs
+journalctl --user -u 'pipewire-network-sender@*.service' -f
+
+# List PipeWire sinks
+pactl list sinks short
+```
+
+### High Latency
+
+Create `~/.config/pipewire/pipewire.conf.d/lowlatency.conf`:
 
 ```conf
 context.properties = {
-    # Set sample rate
-    default.clock.rate          = 48000
-
-    # Set small quantum for low latency
-    default.clock.quantum       = 128
-    default.clock.min-quantum   = 64
-    default.clock.max-quantum   = 256
-
-    # Optional: allow realtime threads
-    default.daemon.realtime     = true
-    default.daemon.priority     = 89
+    default.clock.rate        = 48000
+    default.clock.quantum     = 128
+    default.clock.min-quantum = 64
+    default.clock.max-quantum = 256
+    default.daemon.realtime   = true
+    default.daemon.priority   = 89
 }
 ```
 
-Then restart pipewire: `systemctl --user restart pipewire pipewire-pulse wireplumber`.
+Then restart: `systemctl --user restart pipewire pipewire-pulse wireplumber`
 
-Please, note that you might need to customize the values in the `lowlatency.conf` file accordingly to your system specification. A value of `128` for quantum might increase your CPU usage or might break audio (not the hardware) by introducing cracklings.
-
-### Log Locations
-- **Systemd logs**: `journalctl --user -u pipewire-network-{receiver,sender}.service`
-
-### Performance Tuning
-
-#### Network Optimization
-```json
-// receiver.json - for high-quality audio
-{
-  "sample_spec": "s24le 96000 2",
-  "channel_map": "front-left,front-right"
-}
-```
-
-#### Latency Reduction
-```json
-// sender.json - reduce retry interval for faster reconnection
-{
-  "retry_interval": 5,
-  "streams": [...]
-}
-```
+> Note: a quantum of `128` may increase CPU usage or introduce crackling on slower systems. Tune to taste.
 
 ## Security Considerations
 
-- Use a dedicated multicast group or unicast destination
-- Consider VPN for internet connections
-- Use firewalld to restrict which hosts can receive the UDP stream
-
-## Development
-
-### Building from Source
-
-#### Prerequisites
-```bash
-# Fedora/RHEL/CentOS
-sudo dnf install python3 python3-devel systemd-rpm-macros rpm-build pipewire pipewire-utils
-
-# Debian/Ubuntu
-sudo apt install python3 python3-dev debhelper dh-python dpkg-dev pipewire pipewire-pulse
-```
-
-### Testing
-
-#### Manual Testing
-```bash
-# Start receiver manually
-python3 src/pipewire-network-receiver
-
-# Start sender manually
-python3 src/pipewire-network-sender
-
-# Test with custom config
-CONFIG_DIR=/tmp/test-config python3 src/pipewire-network-receiver
-```
+- Use unicast addresses or a dedicated multicast group
+- Wrap in a VPN for internet links
+- Use firewalld to restrict which source IPs can send to the receiver port
 
 ## License
 
-MIT License - see LICENSE file for details.
+MIT License — see [LICENSE](LICENSE) for details.
 
 ## Contributing
 
@@ -347,13 +283,15 @@ MIT License - see LICENSE file for details.
 ## Changelog
 
 ### Version 2.0.0
-- Ported the whole project to pipewire and renamed to `pipewire-network`
-- Basic receiver and sender functionality using PipeWire RTP transport
+- **Rewritten in C** using libpipewire-0.3 native API (no Python dependency)
+- Receiver auto-connects to default sink and follows live sink changes
+- Sender supervisor with per-stream retry logic
+- JSON configuration via libjson-c
+- `pipewire-network-sender-config` shell tool for config management
+- Makefile-based build (no meson/cmake)
+- RPM and DEB packaging with proper C build steps
 
 ### Version 1.0.0
-- Initial release
+- Initial release (Python implementation)
 - Basic receiver and sender functionality
 - RPM and DEB packaging
-- Systemd integration
-- Configuration file support
-- Health monitoring and auto-reconnection
